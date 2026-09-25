@@ -1,0 +1,439 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@theme {
+  --color-background: #f2efe6;
+  --color-foreground: #0000f2;
+  --color-card: #fffcf4;
+  --color-card-foreground: #0000f2;
+  --color-popover: #fffcf4;
+  --color-popover-foreground: #0000f2;
+  --color-primary: #0000f2;
+  --color-primary-foreground: #f2efe6;
+  --color-secondary: #e6e2d4;
+  --color-secondary-foreground: #0000f2;
+  --color-muted: #e8e4d6;
+  --color-muted-foreground: #3c3ce0;
+  --color-accent: #e4e0ff;
+  --color-accent-foreground: #0000f2;
+  --color-destructive: #c43c32;
+  --color-destructive-foreground: #fff7f5;
+  --color-border: #c9c6e8;
+  --color-input: #b8b5d8;
+  --color-ring: #0000f2;
+  --color-todo: #0000f2;
+  --color-doing: #2a2af0;
+  --color-done: #4d4df5;
+  --color-surface: #ebe6d8;
+  --color-overlay: rgb(0 0 242 / 0.28);
+
+  --font-sans: "Figtree", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Oswald", "Arial Narrow", ui-sans-serif, sans-serif;
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --radius-xl: 22px;
+  --radius-2xl: 20px;
+  --radius-3xl: 24px;
+  --radius: 10px;
+
+  --shadow-card:
+    0 0 0 1px rgb(0 0 242 / 0.07),
+    0 1px 2px rgb(0 0 242 / 0.04);
+  --shadow-card-hover:
+    0 0 0 1px rgb(0 0 242 / 0.12),
+    0 8px 24px -12px rgb(0 0 242 / 0.18);
+  --shadow-lift: 0 16px 40px -16px rgb(0 0 242 / 0.22);
+
+  --ease-smooth-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --duration-micro: 80ms;
+  --duration-quick: 150ms;
+  --duration-fast: 250ms;
+  --duration-medium: 350ms;
+
+  --width-column: min(20.5rem, calc(100vw - 2rem));
+  --width-sidebar: 15.5rem;
+}
+
+@layer base {
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  html,
+  body,
+  #app {
+    min-height: 100dvh;
+  }
+
+  body {
+    background-color: var(--color-surface);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+  }
+
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+  }
+
+  p {
+    text-wrap: pretty;
+  }
+}
+
+.safe-pad {
+  padding-top: max(1rem, env(safe-area-inset-top));
+  padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
+  padding-left: max(1rem, env(safe-area-inset-left));
+  padding-right: max(1rem, env(safe-area-inset-right));
+}
+
+.paper-grain {
+  background-color: var(--color-background);
+  background-image: repeating-linear-gradient(
+    -45deg,
+    rgb(0 0 242 / 0.04) 0 1px,
+    transparent 1px 8px
+  );
+}
+
+.app-stage {
+  background-color: var(--color-surface);
+  background-image:
+    radial-gradient(90% 70% at 88% 108%, rgb(0 0 242 / 0.1), transparent 58%),
+    radial-gradient(50% 40% at 12% 0%, rgb(255 252 244 / 0.7), transparent 50%);
+}
+
+.kanban-card {
+  box-shadow: var(--shadow-card);
+  transition:
+    box-shadow var(--duration-quick) var(--ease-out),
+    transform var(--duration-quick) var(--ease-out),
+    opacity var(--duration-quick) var(--ease-out);
+}
+
+.kanban-card:hover {
+  box-shadow: var(--shadow-card-hover);
+  transform: translateY(-2px);
+}
+
+html[data-density="compact"] .kanban-card {
+  padding: 0.55rem;
+}
+
+html[data-density="compact"] .kanban-card h3 {
+  font-size: 0.8125rem;
+}
+
+html[data-motion="reduce"] .card-enter,
+html[data-motion="reduce"] .board-skeleton,
+html[data-motion="reduce"] .split-line,
+html[data-motion="reduce"] .kicker,
+html[data-motion="reduce"] .rise-in,
+html[data-motion="reduce"] .route-enter,
+html[data-motion="reduce"] .board-cols > *,
+html[data-motion="reduce"] .btn-sheen::after,
+html[data-motion="reduce"] .blink-dot,
+html[data-motion="reduce"] .stat-bar-fill {
+  animation: none;
+}
+
+.kanban-card.is-dragging {
+  opacity: 0.35;
+  box-shadow: none;
+}
+
+.kanban-card.is-selected {
+  box-shadow: 0 0 0 2px var(--color-foreground);
+}
+
+.stat-bar-fill {
+  transform-origin: left center;
+  animation: bar-in var(--duration-medium) var(--ease-smooth-out);
+}
+
+@keyframes bar-in {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+.kanban-card-overlay {
+  box-shadow: var(--shadow-lift);
+  cursor: grabbing;
+}
+
+.kanban-card-overlay-inner {
+  rotate: 1.5deg;
+  scale: 1.03;
+  transform-origin: center;
+}
+
+.card-enter {
+  animation: card-in var(--duration-fast) var(--ease-smooth-out);
+}
+
+@keyframes card-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+    filter: blur(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+  }
+}
+
+.board-skeleton {
+  animation: pulse-soft 1.2s var(--ease-out) infinite;
+}
+
+@keyframes pulse-soft {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.split-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  font-family: var(--font-display);
+  font-weight: 300;
+  letter-spacing: -0.03em;
+  line-height: 0.9;
+  text-transform: uppercase;
+}
+
+.split-line-wrap {
+  display: block;
+  overflow: hidden;
+}
+
+.split-line {
+  display: inline-block;
+  animation: word-rise 0.7s var(--ease-smooth-out) both;
+}
+
+@keyframes word-rise {
+  from {
+    opacity: 0;
+    transform: translateY(110%);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.invert-word {
+  padding-inline: 0.07em;
+  margin-inline: -0.07em;
+  transition:
+    color var(--duration-micro) var(--ease-out),
+    background-color var(--duration-micro) var(--ease-out);
+}
+
+@media (hover: hover) {
+  .invert-word:hover {
+    background-color: var(--color-foreground);
+    color: var(--color-background);
+  }
+}
+
+.kicker {
+  font-family: var(--font-display);
+  font-weight: 400;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  animation: kicker-in 0.5s var(--ease-smooth-out) both;
+}
+
+@keyframes kicker-in {
+  from {
+    opacity: 0;
+    letter-spacing: 0.42em;
+  }
+  to {
+    opacity: 1;
+    letter-spacing: 0.18em;
+  }
+}
+
+.rise-in {
+  animation: rise-in 0.5s var(--ease-smooth-out) both;
+}
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.route-enter {
+  animation: route-in 0.38s var(--ease-smooth-out) both;
+}
+
+@keyframes route-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.board-cols > * {
+  animation: col-in 0.55s var(--ease-smooth-out) both;
+}
+
+.board-cols > *:nth-child(1) {
+  animation-delay: 0.18s;
+}
+
+.board-cols > *:nth-child(2) {
+  animation-delay: 0.28s;
+}
+
+.board-cols > *:nth-child(3) {
+  animation-delay: 0.38s;
+}
+
+@keyframes col-in {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+    filter: blur(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+  }
+}
+
+.btn-sheen {
+  isolation: isolate;
+}
+
+.btn-sheen::after {
+  display: none;
+}
+
+.link-underline {
+  position: relative;
+}
+
+.link-underline::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  bottom: 0.12em;
+  left: 0;
+  height: 1px;
+  transform: scaleX(0);
+  transform-origin: left;
+  background-color: currentColor;
+  transition: transform var(--duration-quick) var(--ease-out);
+}
+
+.link-underline:hover::after,
+[aria-current="page"] .link-underline::after {
+  transform: scaleX(1);
+}
+
+.blink-dot {
+  animation: blink 1s step-end infinite;
+}
+
+@keyframes blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
+}
+
+.nav-invert {
+  transition:
+    color var(--duration-micro) var(--ease-out),
+    background-color var(--duration-micro) var(--ease-out),
+    transform var(--duration-micro) var(--ease-out);
+}
+
+.nav-invert:active {
+  transform: scale(0.98);
+}
+
+@media (hover: hover) {
+  .nav-invert:hover {
+    background-color: var(--color-foreground);
+    color: var(--color-background);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card-enter,
+  .board-skeleton,
+  .split-line,
+  .kicker,
+  .rise-in,
+  .route-enter,
+  .board-cols > *,
+  .btn-sheen::after,
+  .blink-dot,
+  .stat-bar-fill {
+    animation: none;
+  }
+
+  .kanban-card,
+  .kanban-card-overlay-inner,
+  .invert-word,
+  .nav-invert,
+  .link-underline::after {
+    transition: none;
+    rotate: none;
+    scale: none;
+  }
+
+  .split-line,
+  .rise-in,
+  .route-enter,
+  .board-cols > * {
+    opacity: 1;
+    transform: none;
+  }
+
+  .kicker {
+    opacity: 1;
+    letter-spacing: 0.18em;
+  }
+}

@@ -1,0 +1,16 @@
+node_modules
+dist
+.output
+.vinxi
+.vercel
+.env
+.env.*
+*.log
+screenshots
+artifacts
+attachments
+public/quadro-sorgente.zip
+public/QUADRO.md
+public/__grok
+.grok
+.DS_Store
