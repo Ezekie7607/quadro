@@ -1,4 +1,5 @@
-import { motion, useReducedMotion } from "motion/react";
+import { motion } from "motion/react";
+import { useQuietMotion } from "@/lib/use-quiet-motion";
 import { APP_NAME } from "@/lib/brand";
 import { SPRING_LAYOUT } from "@/lib/ease";
 import { cn } from "@/lib/utils";
@@ -16,7 +17,7 @@ type QuadroMarkProps = {
 };
 
 export function QuadroMark({ className, animate = false, title = APP_NAME }: QuadroMarkProps) {
-  const reduce = useReducedMotion() ?? false;
+  const reduce = useQuietMotion();
   const play = animate && !reduce;
 
   return (

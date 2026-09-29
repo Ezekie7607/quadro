@@ -1,10 +1,12 @@
 "use client";
 
 import { ArrowUpRight, BellOff } from "lucide-react";
-import { motion, type Transition, useReducedMotion } from "motion/react";
+import { motion, type Transition } from "motion/react";
+import { useQuietMotion } from "@/lib/use-quiet-motion";
 import {
   type FocusEvent,
   type KeyboardEvent,
+  type MouseEvent,
   type PointerEvent,
   type ReactNode,
   useCallback,
@@ -42,6 +44,8 @@ export interface NotificationStackProps {
   defaultExpanded?: boolean;
   onExpandedChange?: (expanded: boolean) => void;
   onViewAll?: () => void;
+  /** Tap on one item of the open list; without it the whole stack acts as one button. */
+  onItemSelect?: (id: string) => void;
   maxVisible?: number;
   collapsedLabel?: string;
   expandedLabel?: string;
@@ -85,35 +89,18 @@ function NotificationCardContent({
   classNames?: NotificationStackClassNames;
 }) {
   return (
-    <span
-      className={cn(
-        "flex min-w-0 flex-col gap-1.5 py-4",
-        classNames?.content,
-      )}
-    >
+    <span className={cn("flex min-w-0 flex-col gap-1.5 py-4", classNames?.content)}>
       <span className="flex min-w-0 items-start justify-between gap-3">
-        <span
-          className={cn(
-            "min-w-0 text-sm font-medium leading-snug",
-            classNames?.title,
-          )}
-        >
+        <span className={cn("min-w-0 text-sm font-medium leading-snug", classNames?.title)}>
           {item.title}
         </span>
         {item.trailing ? (
-          <span
-            className={cn("shrink-0 text-xs", classNames?.trailing)}
-          >
-            {item.trailing}
-          </span>
+          <span className={cn("shrink-0 text-xs", classNames?.trailing)}>{item.trailing}</span>
         ) : null}
       </span>
       {item.description ? (
         <span
-          className={cn(
-            "text-xs leading-relaxed text-muted-foreground",
-            classNames?.description,
-          )}
+          className={cn("text-xs leading-relaxed text-muted-foreground", classNames?.description)}
         >
           {item.description}
         </span>
@@ -128,6 +115,7 @@ export function NotificationStack({
   defaultExpanded = false,
   onExpandedChange,
   onViewAll,
+  onItemSelect,
   maxVisible = 3,
   collapsedLabel = "Scadenze",
   expandedLabel = "Apri",
@@ -135,7 +123,7 @@ export function NotificationStack({
   className,
   classNames,
 }: NotificationStackProps) {
-  const reduce = useReducedMotion();
+  const reduce = useQuietMotion();
   const hasFocus = useRef(false);
   const rootRef = useRef<HTMLButtonElement>(null);
   const hover = useHoverGesture();
@@ -169,9 +157,7 @@ export function NotificationStack({
   const visibleItems = items.slice(0, Math.max(1, maxVisible));
   const primaryItem = visibleItems[0];
   const transition: Transition = reduce ? { duration: 0 } : SPRING_LAYOUT;
-  const cardTransition: Transition = reduce
-    ? { duration: 0 }
-    : { duration: 0.32, ease: EASE_OUT };
+  const cardTransition: Transition = reduce ? { duration: 0 } : { duration: 0.32, ease: EASE_OUT };
   const backgroundTransition: Transition = reduce
     ? { duration: 0 }
     : { duration: 0.26, ease: EASE_OUT };
@@ -207,7 +193,7 @@ export function NotificationStack({
     // *and* threw the user back to the top of the document.
   };
 
-  const handleClick = () => {
+  const handleClick = (event: MouseEvent<HTMLButtonElement>) => {
     const gesture = tap.take();
     // Read from where the gesture started, not from now: a browser that
     // focuses the stack on contact expands it mid-tap, and the first tap would
@@ -217,6 +203,17 @@ export function NotificationStack({
     if (!wasExpanded) {
       setIsExpanded(true);
       if (gesture && gesture.pointerType !== "mouse") setTapExpanded(true);
+      return;
+    }
+
+    // A tap on one item of a list that was already open picks that item. Decided
+    // here, from where the gesture started, so the first tap on a touch screen
+    // still just opens the list.
+    const picked = onItemSelect
+      ? (event.target as HTMLElement).closest<HTMLElement>("[data-stack-item]")?.dataset.stackItem
+      : undefined;
+    if (picked && onItemSelect) {
+      onItemSelect(picked);
       return;
     }
 
@@ -272,21 +269,17 @@ export function NotificationStack({
       <span aria-hidden="true" className="invisible block p-3">
         <span className="block">
           <span
-            className={cn(
-              "block rounded-2xl border border-transparent px-4",
-              classNames?.card,
-            )}
+            className={cn("block rounded-2xl border border-transparent px-4", classNames?.card)}
           >
-            <NotificationCardContent
-              item={primaryItem}
-              classNames={classNames}
-            />
+            <NotificationCardContent item={primaryItem} classNames={classNames} />
           </span>
         </span>
         <span className="mt-2 block h-9" />
       </span>
 
-      <span className="absolute inset-x-0 bottom-0 block p-3">
+      {/* Anchored to the top: the list opens downward over what follows, so the
+          stack keeps its compact footprint instead of reserving room above. */}
+      <span className="absolute inset-x-0 top-0 block p-3">
         <motion.span
           aria-hidden="true"
           layout
@@ -294,13 +287,7 @@ export function NotificationStack({
           transition={backgroundTransition}
           className="absolute inset-0 rounded-3xl bg-muted"
         />
-        <span
-          className={cn(
-            "relative z-10 grid gap-1",
-            !isExpanded && "pb-2",
-            classNames?.stack,
-          )}
-        >
+        <span className={cn("relative z-10 grid gap-1", !isExpanded && "pb-2", classNames?.stack)}>
           {visibleItems.map((item, index) => {
             const isPrimary = index === 0;
 
@@ -330,12 +317,11 @@ export function NotificationStack({
                   className={cn(
                     "block",
                     !isPrimary && !isExpanded && "invisible",
+                    isExpanded && onItemSelect && "cursor-pointer",
                   )}
+                  data-stack-item={onItemSelect ? item.id : undefined}
                 >
-                  <NotificationCardContent
-                    item={item}
-                    classNames={classNames}
-                  />
+                  <NotificationCardContent item={item} classNames={classNames} />
                 </span>
               </motion.span>
             );
@@ -359,10 +345,7 @@ export function NotificationStack({
             {items.length}
           </span>
           <span className="flex items-center text-sm font-medium">
-            <ActionSwapText
-              value={isExpanded ? "expanded" : "collapsed"}
-              animation="roll"
-            >
+            <ActionSwapText value={isExpanded ? "expanded" : "collapsed"} animation="roll">
               {isExpanded ? (
                 <span className="inline-flex items-center gap-1">
                   {expandedLabel}

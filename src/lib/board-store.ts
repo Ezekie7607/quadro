@@ -1,8 +1,17 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
+import { quadroStorage } from "@/lib/safe-storage";
 import { arrayMove } from "@dnd-kit/sortable";
 import { createId } from "@/lib/utils";
 import { isIsoDate } from "@/lib/dates";
+import {
+  claimIds,
+  cleanText,
+  cleanTimestamp,
+  isRecord,
+  isSafeId,
+  safeEntries,
+} from "@/lib/sanitize";
 import { DEFAULT_BOARD_ID } from "@/lib/spaces-store";
 import { boardFromKit, type BoardKit } from "@/lib/board-kits";
 import { useEffect, useState } from "react";
@@ -102,19 +111,11 @@ type BoardState = {
   ) => void;
   deleteCard: (spaceId: string, id: string) => void;
   deleteMany: (spaceId: string, ids: string[]) => void;
-  moveCard: (
-    spaceId: string,
-    activeId: string,
-    toColumn: ColumnId,
-    overId: string | null,
-  ) => void;
+  moveCard: (spaceId: string, activeId: string, toColumn: ColumnId, overId: string | null) => void;
   moveMany: (spaceId: string, ids: string[], toColumn: ColumnId) => void;
-  reorderInColumn: (
-    spaceId: string,
-    columnId: ColumnId,
-    activeId: string,
-    overId: string,
-  ) => void;
+  reorderInColumn: (spaceId: string, columnId: ColumnId, activeId: string, overId: string) => void;
+  /** Put back a column layout taken earlier, e.g. when a drag is cancelled. */
+  setColumns: (spaceId: string, columns: BoardData["columns"]) => void;
 };
 
 export const EMPTY_BOARD: BoardData = {
@@ -130,10 +131,7 @@ export function isColumnId(value: string): value is ColumnId {
   return (COLUMN_IDS as readonly string[]).includes(value);
 }
 
-export function findColumnOf(
-  columns: Record<ColumnId, string[]>,
-  cardId: string,
-): ColumnId | null {
+export function findColumnOf(columns: Record<ColumnId, string[]>, cardId: string): ColumnId | null {
   for (const id of COLUMN_IDS) {
     if (columns[id].includes(cardId)) return id;
   }
@@ -148,34 +146,55 @@ function cloneColumns(columns: Record<ColumnId, string[]>) {
   };
 }
 
-function normalizeBoard(data: Partial<BoardData> | undefined): BoardData {
-  const cards: Record<string, Card> = {};
-  for (const [id, card] of Object.entries(data?.cards ?? {})) {
-    cards[id] = {
-      ...card,
-      priority: PRIORITY_IDS.includes(card.priority) ? card.priority : "med",
-      dueDate: isIsoDate(card.dueDate) ? card.dueDate : null,
-    };
-  }
-  return {
-    cards,
-    columns: {
-      todo: [...(data?.columns?.todo ?? [])],
-      doing: [...(data?.columns?.doing ?? [])],
-      done: [...(data?.columns?.done ?? [])],
-    },
-  };
+export const CARD_TITLE_MAX = 120;
+export const CARD_TEXT_MAX = 1000;
+
+function isPriorityId(value: unknown): value is PriorityId {
+  return typeof value === "string" && (PRIORITY_IDS as readonly string[]).includes(value);
 }
 
-function getStorage() {
-  if (typeof window === "undefined") {
-    return {
-      getItem: () => null,
-      setItem: () => {},
-      removeItem: () => {},
+/**
+ * A board that every view can read without guarding: known fields only, text
+ * capped, each card in exactly one column, and no card left outside a column
+ * (an orphan would be counted nowhere and shown nowhere).
+ */
+function normalizeBoard(data: unknown): BoardData {
+  const source = isRecord(data) ? data : {};
+  const cards: Record<string, Card> = {};
+  safeEntries(source.cards).forEach(([key, raw], index) => {
+    if (!isSafeId(key) || !isRecord(raw)) return;
+    cards[key] = {
+      id: key,
+      title: cleanText(raw.title, CARD_TITLE_MAX).trim() || "Senza titolo",
+      description: cleanText(raw.description, CARD_TEXT_MAX),
+      priority: isPriorityId(raw.priority) ? raw.priority : "med",
+      dueDate: isIsoDate(raw.dueDate) ? raw.dueDate : null,
+      createdAt: cleanTimestamp(raw.createdAt, index + 1),
     };
+  });
+  const known = new Set(Object.keys(cards));
+  const claimed = new Set<string>();
+  const rawColumns = isRecord(source.columns) ? source.columns : {};
+  const columns = {
+    todo: claimIds(rawColumns.todo, known, claimed),
+    doing: claimIds(rawColumns.doing, known, claimed),
+    done: claimIds(rawColumns.done, known, claimed),
+  };
+  for (const id of known) {
+    if (!claimed.has(id)) columns.todo.push(id);
   }
-  return localStorage;
+  return { cards, columns };
+}
+
+/** Clean boards keyed by space id, or `null` when the input is not an object. */
+export function normalizeBoards(raw: unknown): Record<string, BoardData> | null {
+  if (!isRecord(raw)) return null;
+  const boards: Record<string, BoardData> = {};
+  for (const [spaceId, board] of safeEntries(raw)) {
+    if (!isSafeId(spaceId)) continue;
+    boards[spaceId] = normalizeBoard(board);
+  }
+  return boards;
 }
 
 function readBoard(state: BoardState, spaceId: string): BoardData {
@@ -204,8 +223,8 @@ export const useBoardStore = create<BoardState>()(
         const id = createId();
         const card: Card = {
           id,
-          title: title.trim(),
-          description: description.trim(),
+          title: title.trim().slice(0, CARD_TITLE_MAX),
+          description: description.trim().slice(0, CARD_TEXT_MAX),
           priority,
           dueDate: isIsoDate(dueDate) ? dueDate : null,
           createdAt: Date.now(),
@@ -241,8 +260,8 @@ export const useBoardStore = create<BoardState>()(
                   ...board.cards,
                   [id]: {
                     ...existing,
-                    title: title.trim(),
-                    description: description.trim(),
+                    title: title.trim().slice(0, CARD_TITLE_MAX),
+                    description: description.trim().slice(0, CARD_TEXT_MAX),
                     priority,
                     dueDate: isIsoDate(dueDate) ? dueDate : null,
                   },
@@ -330,6 +349,23 @@ export const useBoardStore = create<BoardState>()(
           };
         });
       },
+      setColumns: (spaceId, columns) => {
+        set((state) => {
+          const board = state.boards[spaceId];
+          if (!board) return state;
+          // Reconcile, do not replace: another tab may have added or deleted
+          // cards since the layout was taken.
+          const known = new Set(Object.keys(board.cards));
+          const claimed = new Set<string>();
+          const next = {
+            todo: claimIds(columns.todo, known, claimed),
+            doing: claimIds(columns.doing, known, claimed),
+            done: claimIds(columns.done, known, claimed),
+          };
+          for (const id of known) if (!claimed.has(id)) next.todo.push(id);
+          return { boards: { ...state.boards, [spaceId]: { ...board, columns: next } } };
+        });
+      },
       reorderInColumn: (spaceId, columnId, activeId, overId) => {
         set((state) => {
           const board = readBoard(state, spaceId);
@@ -354,31 +390,24 @@ export const useBoardStore = create<BoardState>()(
     }),
     {
       name: "bacheca-v1",
-      storage: createJSONStorage(getStorage),
+      storage: createJSONStorage(quadroStorage),
       skipHydration: true,
       partialize: (state) => ({ boards: state.boards }),
       version: 4,
       migrate: (persisted) => {
-        const data = persisted as {
-          boards?: Record<string, Partial<BoardData>>;
-          cards?: Record<string, Card>;
-          columns?: Record<ColumnId, string[]>;
-        };
-        if (data.boards) {
-          const boards: Record<string, BoardData> = {};
-          for (const [id, board] of Object.entries(data.boards)) {
-            boards[id] = normalizeBoard(board);
-          }
-          return { boards };
-        }
+        const data = isRecord(persisted) ? persisted : {};
+        const boards = normalizeBoards(data.boards);
+        if (boards) return { boards };
+        // Before v2 there was a single board stored at the top level.
         return {
           boards: {
-            [DEFAULT_BOARD_ID]: normalizeBoard({
-              cards: data.cards,
-              columns: data.columns,
-            }),
+            [DEFAULT_BOARD_ID]: normalizeBoard({ cards: data.cards, columns: data.columns }),
           },
         };
+      },
+      merge: (persisted, current) => {
+        const boards = normalizeBoards(isRecord(persisted) ? persisted.boards : undefined);
+        return boards ? { ...current, boards } : current;
       },
     },
   ),

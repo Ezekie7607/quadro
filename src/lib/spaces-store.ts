@@ -1,6 +1,8 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
+import { quadroStorage } from "@/lib/safe-storage";
 import { useEffect, useState } from "react";
+import { cleanText, cleanTimestamp, isRecord, isSafeId } from "@/lib/sanitize";
 import { createId } from "@/lib/utils";
 
 export const SPACE_TYPES = ["board", "sales", "notes"] as const;
@@ -66,19 +68,58 @@ type SpacesState = {
   deleteSpace: (id: string) => void;
 };
 
-function getStorage() {
-  if (typeof window === "undefined") {
-    return {
-      getItem: () => null,
-      setItem: () => {},
-      removeItem: () => {},
-    };
-  }
-  return localStorage;
-}
-
 export function isSpaceType(value: string): value is SpaceType {
   return (SPACE_TYPES as readonly string[]).includes(value);
+}
+
+export const SPACE_TITLE_MAX = 40;
+
+/**
+ * A clean `Space[]` from untrusted input, or `null` when it is not a list at
+ * all. Entries without a usable id or type are dropped, titles are trimmed and
+ * capped, duplicate ids keep the first occurrence.
+ */
+export function normalizeSpaces(raw: unknown): Space[] | null {
+  if (!Array.isArray(raw)) return null;
+  const seen = new Set<string>();
+  const spaces: Space[] = [];
+  raw.forEach((item, index) => {
+    if (!isRecord(item) || !isSafeId(item.id) || seen.has(item.id)) return;
+    if (typeof item.type !== "string" || !isSpaceType(item.type)) return;
+    seen.add(item.id);
+    spaces.push({
+      id: item.id,
+      type: item.type,
+      // Stored or imported duplicates get their number too (§5).
+      title: uniqueSpaceTitle(
+        cleanText(item.title, SPACE_TITLE_MAX).trim() || SPACE_META[item.type].title,
+        spaces,
+      ),
+      createdAt: cleanTimestamp(item.createdAt, index + 1),
+    });
+  });
+  return spaces;
+}
+
+/**
+ * A title no other space uses (§5): a duplicate gets the next free number,
+ * "Bacheca" → "Bacheca 2". `exceptId` is the space being renamed.
+ */
+export function uniqueSpaceTitle(title: string, spaces: Space[], exceptId?: string) {
+  const taken = new Set(
+    spaces
+      .filter((space) => space.id !== exceptId)
+      .map((space) => space.title.trim().toLowerCase()),
+  );
+  const base = title.slice(0, SPACE_TITLE_MAX);
+  if (!taken.has(base.toLowerCase())) return base;
+  for (let n = 2; ; n += 1) {
+    const suffix = ` ${n}`;
+    // The number has to fit inside the cap: a longer title would be cut on the
+    // next load, losing the number and bringing the duplicate back.
+    const candidate = `${base.slice(0, SPACE_TITLE_MAX - suffix.length).trimEnd()}${suffix}`;
+    if (!taken.has(candidate.toLowerCase())) return candidate;
+  }
 }
 
 export function nextSpaceTitle(type: SpaceType, spaces: Space[]) {
@@ -96,23 +137,27 @@ export const useSpacesStore = create<SpacesState>()(
       spaces: DEFAULT_SPACES,
       addSpace: (type, title) => {
         const id = createId();
-        const space: Space = {
-          id,
-          type,
-          title: title.trim() || SPACE_META[type].title,
-          createdAt: Date.now(),
-        };
-        set((state) => ({ spaces: [...state.spaces, space] }));
+        set((state) => {
+          const base = title.trim().slice(0, SPACE_TITLE_MAX) || SPACE_META[type].title;
+          const space: Space = {
+            id,
+            type,
+            title: uniqueSpaceTitle(base, state.spaces),
+            createdAt: Date.now(),
+          };
+          return { spaces: [...state.spaces, space] };
+        });
         return id;
       },
       renameSpace: (id, title) => {
-        const next = title.trim();
+        const next = title.trim().slice(0, SPACE_TITLE_MAX);
         if (!next) return;
-        set((state) => ({
-          spaces: state.spaces.map((space) =>
-            space.id === id ? { ...space, title: next } : space,
-          ),
-        }));
+        set((state) => {
+          const title = uniqueSpaceTitle(next, state.spaces, id);
+          return {
+            spaces: state.spaces.map((space) => (space.id === id ? { ...space, title } : space)),
+          };
+        });
       },
       deleteSpace: (id) => {
         set((state) => ({ spaces: state.spaces.filter((space) => space.id !== id) }));
@@ -120,10 +165,14 @@ export const useSpacesStore = create<SpacesState>()(
     }),
     {
       name: "quadro-spaces-v1",
-      storage: createJSONStorage(getStorage),
+      storage: createJSONStorage(quadroStorage),
       skipHydration: true,
       partialize: (state) => ({ spaces: state.spaces }),
       version: 1,
+      merge: (persisted, current) => {
+        const spaces = normalizeSpaces(isRecord(persisted) ? persisted.spaces : undefined);
+        return spaces ? { ...current, spaces } : current;
+      },
     },
   ),
 );

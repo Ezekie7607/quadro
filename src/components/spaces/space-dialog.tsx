@@ -23,6 +23,7 @@ import { SPRING_LAYOUT } from "@/lib/ease";
 import { useSettingsStore } from "@/lib/settings-store";
 import {
   SPACE_META,
+  SPACE_TITLE_MAX,
   SPACE_TYPES,
   nextSpaceTitle,
   type Space,
@@ -117,7 +118,7 @@ export function SpaceDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
-        <form onSubmit={handleSubmit} className="grid max-h-[min(80dvh,38rem)] gap-4 overflow-y-auto">
+        <form onSubmit={handleSubmit} className="grid gap-4">
           <DialogHeader>
             <DialogTitle>{isEdit ? "Modifica spazio" : "Nuovo spazio"}</DialogTitle>
             <DialogDescription>
@@ -139,6 +140,7 @@ export function SpaceDialog({
                       <button
                         key={id}
                         type="button"
+                        aria-pressed={active}
                         onClick={() => pickType(id)}
                         className={cn(
                           "flex min-h-20 flex-col items-start justify-between rounded-2xl p-2.5 text-left transition-colors",
@@ -173,6 +175,7 @@ export function SpaceDialog({
                         <Tooltip key={id} content={meta.hint} side="bottom" wrapperClassName="block w-full">
                           <button
                             type="button"
+                            aria-pressed={active}
                             onClick={() => setKit(id)}
                             className={cn(
                               "relative flex min-h-16 w-full flex-col items-start justify-between rounded-2xl p-2.5 text-left transition-colors",
@@ -206,6 +209,7 @@ export function SpaceDialog({
             <Input
               id="space-title"
               value={title}
+              maxLength={SPACE_TITLE_MAX}
               onChange={(event) => setTitle(event.target.value)}
               placeholder="Nome"
               autoComplete="off"

@@ -1,4 +1,3 @@
-import { TextScramble } from "@/components/motion/text-scramble";
 import { cn } from "@/lib/utils";
 
 type SplitHeadlineProps = {
@@ -6,6 +5,11 @@ type SplitHeadlineProps = {
   className?: string;
 };
 
+/**
+ * Page title: two lines that rise in (`split-line`, CSS), inverting on hover.
+ * No scramble here — the brief keeps that for the menu labels (§15), where the
+ * "Scrittura in scramble" and "Calmo" settings already govern it.
+ */
 export function SplitHeadline({ lines, className }: SplitHeadlineProps) {
   return (
     <h1 className={cn("split-hero", className)}>
@@ -19,7 +23,7 @@ export function SplitHeadline({ lines, className }: SplitHeadlineProps) {
             className="split-line invert-word"
             style={{ animationDelay: `${80 + index * 90}ms` }}
           >
-            <TextScramble text={line} playOnMount duration={720 + index * 90} />
+            {line}
           </span>
         </span>
       ))}

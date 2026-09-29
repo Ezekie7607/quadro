@@ -1,37 +1,35 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useSettingsStore } from "@/lib/settings-store";
+import { isShortcutBlocked } from "@/lib/shortcuts";
 import { useUiStore } from "@/lib/ui-store";
 
+/**
+ * The page's single-key shortcuts (§12): N runs `onNew` when the page has one,
+ * "/" focuses the page's own search and falls back to the palette. Both stand
+ * down while typing, with a dialog open, or with "Scorciatoie" off.
+ */
 export function useQuietKeys({
   onNew,
   searchId = "quadro-search",
 }: {
-  onNew: () => void;
+  onNew?: () => void;
   searchId?: string;
-}) {
+} = {}) {
   const shortcuts = useSettingsStore((s) => s.shortcuts);
+  const onNewRef = useRef(onNew);
+
+  useEffect(() => {
+    onNewRef.current = onNew;
+  });
 
   useEffect(() => {
     if (!shortcuts) return;
     function onKey(event: KeyboardEvent) {
       if (event.metaKey || event.ctrlKey || event.altKey) return;
-      const target = event.target as HTMLElement | null;
-      const typing =
-        target &&
-        (target.tagName === "INPUT" ||
-          target.tagName === "TEXTAREA" ||
-          target.isContentEditable);
-      if (typing) return;
-      if (
-        document.querySelector(
-          '[data-slot="dialog-content"], [data-slot="alert-dialog-content"], [data-slot="command-palette"]',
-        )
-      ) {
-        return;
-      }
-      if (event.key === "n" || event.key === "N") {
+      if (isShortcutBlocked(event)) return;
+      if ((event.key === "n" || event.key === "N") && onNewRef.current) {
         event.preventDefault();
-        onNew();
+        onNewRef.current();
         return;
       }
       if (event.key === "/") {
@@ -46,5 +44,5 @@ export function useQuietKeys({
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onNew, searchId, shortcuts]);
+  }, [searchId, shortcuts]);
 }

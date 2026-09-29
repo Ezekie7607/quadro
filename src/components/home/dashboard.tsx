@@ -1,6 +1,6 @@
 import { type ReactNode, useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { ChartColumn, CircleDollarSign, Columns3, StickyNote } from "lucide-react";
+import { ChartColumn, CircleDollarSign, Columns3, Plus, StickyNote } from "lucide-react";
 import { toast } from "sonner";
 import { DueStack } from "@/components/due-stack";
 import { QuadroMark } from "@/components/brand/logo";
@@ -9,6 +9,7 @@ import { Tooltip } from "@/components/motion/tooltip";
 import { SearchField } from "@/components/search-field";
 import { SplitHeadline } from "@/components/split-headline";
 import {
+  CARD_TITLE_MAX,
   COLUMN_IDS,
   COLUMN_META,
   EMPTY_BOARD,
@@ -31,6 +32,7 @@ import {
 import { SPACE_META, useSpacesStore, type Space } from "@/lib/spaces-store";
 import { useSettingsStore } from "@/lib/settings-store";
 import { useQuietKeys } from "@/lib/use-quiet-keys";
+import { useUiStore } from "@/lib/ui-store";
 import { cn, formatEuro, pluralizeNote, pluralizeOfferte, pluralizeSchede } from "@/lib/utils";
 
 const TYPE_ICONS = {
@@ -54,6 +56,7 @@ export function HomeDashboard() {
   const notebooks = useNotesStore((s) => s.notebooks);
   const pipelines = useSalesStore((s) => s.pipelines);
   const dueHorizonDays = useSettingsStore((s) => s.dueHorizonDays);
+  const shortcuts = useSettingsStore((s) => s.shortcuts);
 
   const allCards: Card[] = [];
   const boardCounts = { todo: 0, doing: 0, done: 0 };
@@ -115,8 +118,10 @@ export function HomeDashboard() {
     if (space.type !== "board") continue;
     const board = boards[space.id];
     if (!board) continue;
+    // Completed cards are done, not due: the board's own stack skips them too.
+    const done = new Set(board.columns.done);
     for (const card of Object.values(board.cards)) {
-      if (!card.dueDate || card.dueDate > horizon) continue;
+      if (!card.dueDate || card.dueDate > horizon || done.has(card.id)) continue;
       upcoming.push({
         id: card.id,
         title: card.title,
@@ -126,9 +131,7 @@ export function HomeDashboard() {
       });
     }
   }
-  upcoming.sort(
-    (a, b) => a.dueDate.localeCompare(b.dueDate) || a.title.localeCompare(b.title),
-  );
+  upcoming.sort((a, b) => a.dueDate.localeCompare(b.dueDate) || a.title.localeCompare(b.title));
   const shownUpcoming = upcoming.slice(0, 6);
   const overdueCount = upcoming.filter((item) => item.dueDate < today).length;
 
@@ -139,14 +142,16 @@ export function HomeDashboard() {
           <QuadroMark className="size-5" />
           Quadro
         </p>
-        <SplitHeadline
-          lines={["Tutto,", "in un colpo."]}
-          className="mt-2 text-3xl sm:text-4xl"
-        />
+        <SplitHeadline lines={["Tutto,", "in un colpo."]} className="mt-2 text-3xl sm:text-4xl" />
         <p className="mt-3 text-sm text-muted-foreground">
           {formatTodayLine()}. Lavoro, vendite, casa.
         </p>
-        <p className="mt-1 text-xs text-muted-foreground">N nuova · ⌘K cerca · ⌘B menu</p>
+        {shortcuts ? (
+          // Keyboard hints mean nothing under a finger: hidden on coarse pointers.
+          <p className="mt-1 text-xs text-muted-foreground pointer-coarse:hidden">
+            N nuova · ⌘K cerca · ⌘B menu
+          </p>
+        ) : null}
         <CaptureBar />
       </header>
 
@@ -160,12 +165,17 @@ export function HomeDashboard() {
           value={String(boardTotal)}
           hint={pluralizeSchede(boardTotal)}
           tip="Da fare, in corso, fatto — per te o per il team"
+          bar={[
+            { label: "Da fare", value: boardCounts.todo, className: "bg-todo" },
+            { label: "In corso", value: boardCounts.doing, className: "bg-doing" },
+            { label: "Completato", value: boardCounts.done, className: "bg-done" },
+          ]}
         />
         <StatTile
           space={firstSales}
           kicker="Vendite"
           value={String(salesTotal)}
-          hint={pluralizeOfferte(salesTotal)}
+          hint={`${pluralizeOfferte(salesTotal)} · ${formatEuro(openValue)} aperti`}
           tip="Lead, offerte, chiusure"
         />
         <StatTile
@@ -187,28 +197,27 @@ export function HomeDashboard() {
 
       <section aria-label="Scadenze" className="mt-4 rounded-3xl bg-surface p-3 sm:p-4">
         <header className="mb-3">
-          <h2 className="font-display text-sm font-medium tracking-[0.08em] uppercase">
-            Scadenze
-          </h2>
+          <h2 className="font-display text-sm font-medium tracking-[0.08em] uppercase">Scadenze</h2>
           <p className="mt-1 text-xs text-muted-foreground">
             Sempre in evidenza. Passa sopra o tocca.
           </p>
         </header>
-        <div className={shownUpcoming.length > 0 ? "flex min-h-80 items-end" : undefined}>
-          <DueStack
-            items={shownUpcoming}
-            collapsedLabel={overdueCount > 0 ? `${overdueCount} in ritardo` : "In arrivo"}
-            expandedLabel="Calendario"
-            onViewAll={() => void navigate({ to: "/calendario" })}
-          />
-        </div>
+        <DueStack
+          items={shownUpcoming}
+          collapsedLabel={overdueCount > 0 ? `${overdueCount} in ritardo` : "In arrivo"}
+          expandedLabel="Calendario"
+          onViewAll={() => void navigate({ to: "/calendario" })}
+          onItemSelect={(item) => {
+            // §4: a tap opens the space — straight on the card that is due.
+            useUiStore.getState().requestOpen({ kind: "card", spaceId: item.spaceId, id: item.id });
+            void navigate({ to: "/spazio/$spaceId", params: { spaceId: item.spaceId } });
+          }}
+        />
       </section>
 
       <section aria-label="Spazi" className="mt-4">
         <div className="mb-2 flex items-center justify-between">
-          <h2 className="font-display text-sm font-medium tracking-[0.08em] uppercase">
-            Spazi
-          </h2>
+          <h2 className="font-display text-sm font-medium tracking-[0.08em] uppercase">Spazi</h2>
         </div>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           {spaces.map((space) => {
@@ -242,12 +251,7 @@ export function HomeDashboard() {
       </section>
 
       <div className="mt-4 grid gap-3 lg:grid-cols-3">
-        <Panel
-          space={firstBoard}
-          icon={Columns3}
-          title="Bacheche"
-          hint={`${donePct}% completato`}
-        >
+        <Panel space={firstBoard} icon={Columns3} title="Bacheche" hint={`${donePct}% completato`}>
           {COLUMN_IDS.map((id) => (
             <MeterRow
               key={id}
@@ -316,11 +320,7 @@ export function HomeDashboard() {
             <ul className="grid gap-3">
               {latestNotes.map(({ note, spaceId }) => (
                 <li key={note.id}>
-                  <Link
-                    to="/spazio/$spaceId"
-                    params={{ spaceId }}
-                    className="block"
-                  >
+                  <Link to="/spazio/$spaceId" params={{ spaceId }} className="block">
                     <p className="text-sm font-medium text-foreground">{note.title}</p>
                     {note.body ? (
                       <p className="mt-0.5 line-clamp-2 text-sm text-muted-foreground">
@@ -346,21 +346,24 @@ function CaptureBar() {
   const ensureBoard = useBoardStore((s) => s.ensureBoard);
   const defaultColumn = useSettingsStore((s) => s.defaultColumn);
   const defaultPriority = useSettingsStore((s) => s.defaultPriority);
-  const defaultKit = useSettingsStore((s) => s.defaultKit);
   const board = spaces.find((space) => space.type === "board");
-  useQuietKeys({
-    onNew: () => document.getElementById("quadro-capture")?.focus(),
-    searchId: "quadro-capture",
-  });
+  // N focuses the capture (§12); Home has no search of its own, so "/" opens the palette.
+  useQuietKeys({ onNew: () => document.getElementById("quadro-capture")?.focus() });
 
   function submit() {
     const title = value.trim();
-    if (!title || !board) return;
-    ensureBoard(board.id, defaultKit);
+    if (!title) return;
+    if (!board) {
+      toast.error("Serve una bacheca: aggiungila dal menu.");
+      return;
+    }
+    // A board with no data yet starts empty here, like opening it does: the
+    // capture must not drop the kit's sample cards next to the new one.
+    ensureBoard(board.id);
     addCard(board.id, defaultColumn, title, "", defaultPriority, null);
     setValue("");
     createCta.flash();
-    toast.success("Scheda aggiunta");
+    toast.success("Aggiunta");
   }
 
   return (
@@ -376,14 +379,11 @@ function CaptureBar() {
         value={value}
         onChange={setValue}
         label="Aggiungi una scheda"
-        placeholder="Una scheda, adesso"
+        placeholder="Aggiungi una scheda"
+        maxLength={CARD_TITLE_MAX}
+        icon={Plus}
       />
-      <CreateAction
-        value={createCta.value}
-        idle="Aggiungi"
-        done="Aggiunta"
-        onClick={submit}
-      />
+      <CreateAction value={createCta.value} idle="Aggiungi" done="Aggiunta" onClick={submit} />
     </form>
   );
 }
@@ -395,6 +395,7 @@ function StatTile({
   hint,
   invert = false,
   tip,
+  bar,
 }: {
   space?: Space;
   kicker: string;
@@ -402,7 +403,10 @@ function StatTile({
   hint: string;
   invert?: boolean;
   tip: string;
+  /** Optional split under the number, e.g. the three board columns. */
+  bar?: { label: string; value: number; className: string }[];
 }) {
+  const barTotal = bar?.reduce((sum, part) => sum + part.value, 0) ?? 0;
   const className = cn(
     "nav-invert flex min-h-28 w-full flex-col justify-between rounded-2xl p-3 sm:min-h-32 sm:p-4",
     invert ? "bg-foreground text-background" : "bg-card text-card-foreground",
@@ -413,7 +417,26 @@ function StatTile({
       <p className="font-display text-3xl leading-none font-light tracking-tight tabular-nums sm:text-4xl">
         {value}
       </p>
-      <p className="text-xs opacity-70">{hint}</p>
+      <span className="block">
+        {bar && barTotal > 0 ? (
+          <span
+            className="mb-1.5 flex h-1.5 w-full overflow-hidden rounded-full bg-muted"
+            role="img"
+            aria-label={bar.map((part) => `${part.label} ${part.value}`).join(", ")}
+          >
+            {bar.map((part) =>
+              part.value > 0 ? (
+                <span
+                  key={part.label}
+                  className={cn("h-full", part.className)}
+                  style={{ width: `${(part.value / barTotal) * 100}%` }}
+                />
+              ) : null,
+            )}
+          </span>
+        ) : null}
+        <span className="block text-xs opacity-70">{hint}</span>
+      </span>
     </>
   );
   const tile = space ? (
@@ -468,15 +491,7 @@ function Panel({
   );
 }
 
-function MeterRow({
-  label,
-  value,
-  ratio,
-}: {
-  label: string;
-  value: string;
-  ratio: number;
-}) {
+function MeterRow({ label, value, ratio }: { label: string; value: string; ratio: number }) {
   const width = `${Math.max(0, Math.min(1, ratio)) * 100}%`;
   return (
     <div className="mb-2 last:mb-0">

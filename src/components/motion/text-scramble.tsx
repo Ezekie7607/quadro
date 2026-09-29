@@ -1,6 +1,6 @@
 "use client";
 
-import { useReducedMotion } from "motion/react";
+import { useQuietMotion } from "@/lib/use-quiet-motion";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { cn } from "@/lib/utils";
 
@@ -30,7 +30,7 @@ export function TextScramble({
   className,
   style,
 }: TextScrambleProps) {
-  const reduce = useReducedMotion() ?? false;
+  const reduce = useQuietMotion();
   const [display, setDisplay] = useState(text);
   const mounted = useRef(false);
   const reduceRef = useRef(reduce);

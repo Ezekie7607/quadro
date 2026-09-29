@@ -1,5 +1,7 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
+import { quadroStorage } from "@/lib/safe-storage";
+import { cleanText, cleanTimestamp, isRecord, isSafeId, safeEntries } from "@/lib/sanitize";
 import { createId } from "@/lib/utils";
 import { DEFAULT_NOTES_ID } from "@/lib/spaces-store";
 import { useEffect, useState } from "react";
@@ -52,6 +54,72 @@ const SEED_NOTES: Note[] = [
 
 export const EMPTY_NOTES: Note[] = [];
 
+export const NOTE_TITLE_MAX = 120;
+export const NOTE_BODY_MAX = 4000;
+export const NOTE_FILES_MAX = 6;
+
+const FILE_STATUSES = ["queued", "uploading", "success", "error"] as const;
+
+function normalizeFile(raw: unknown, index: number): NoteFile | null {
+  if (!isRecord(raw)) return null;
+  const name = cleanText(raw.name, 200).trim();
+  if (!name) return null;
+  const status = FILE_STATUSES.find((item) => item === raw.status) ?? "error";
+  // The progress bar is local to the dialog: a label saved mid-"upload" would
+  // otherwise read "Caricamento" forever after a reload.
+  const settled = status === "queued" || status === "uploading" ? "success" : status;
+  const size = typeof raw.size === "number" && Number.isFinite(raw.size) ? raw.size : 0;
+  return {
+    id: isSafeId(raw.id) ? raw.id : `file-${index}`,
+    name,
+    size: Math.max(0, size),
+    type: cleanText(raw.type, 120),
+    progress: settled === "success" ? 100 : 0,
+    status: settled,
+  };
+}
+
+function normalizeNote(raw: unknown, index: number): Note | null {
+  if (!isRecord(raw) || !isSafeId(raw.id)) return null;
+  const createdAt = cleanTimestamp(raw.createdAt, index + 1);
+  const files = Array.isArray(raw.attachments) ? raw.attachments : [];
+  const seenFiles = new Set<string>();
+  const attachments: NoteFile[] = [];
+  files.forEach((file, fileIndex) => {
+    const clean = normalizeFile(file, fileIndex);
+    if (!clean || seenFiles.has(clean.id) || attachments.length >= NOTE_FILES_MAX) return;
+    seenFiles.add(clean.id);
+    attachments.push(clean);
+  });
+  return {
+    id: raw.id,
+    title: cleanText(raw.title, NOTE_TITLE_MAX).trim() || "Senza titolo",
+    body: cleanText(raw.body, NOTE_BODY_MAX),
+    attachments,
+    createdAt,
+    updatedAt: cleanTimestamp(raw.updatedAt, createdAt),
+  };
+}
+
+/** Clean notebooks keyed by space id, or `null` when the input is not an object. */
+export function normalizeNotebooks(raw: unknown): Record<string, Note[]> | null {
+  if (!isRecord(raw)) return null;
+  const notebooks: Record<string, Note[]> = {};
+  for (const [spaceId, list] of safeEntries(raw)) {
+    if (!isSafeId(spaceId)) continue;
+    const seen = new Set<string>();
+    const notes: Note[] = [];
+    (Array.isArray(list) ? list : []).forEach((item, index) => {
+      const note = normalizeNote(item, index);
+      if (!note || seen.has(note.id)) return;
+      seen.add(note.id);
+      notes.push(note);
+    });
+    notebooks[spaceId] = notes;
+  }
+  return notebooks;
+}
+
 type NotesState = {
   notebooks: Record<string, Note[]>;
   ensureNotes: (spaceId: string) => void;
@@ -67,17 +135,6 @@ type NotesState = {
   deleteNote: (spaceId: string, id: string) => void;
   deleteMany: (spaceId: string, ids: string[]) => void;
 };
-
-function getStorage() {
-  if (typeof window === "undefined") {
-    return {
-      getItem: () => null,
-      setItem: () => {},
-      removeItem: () => {},
-    };
-  }
-  return localStorage;
-}
 
 export const useNotesStore = create<NotesState>()(
   persist(
@@ -152,26 +209,22 @@ export const useNotesStore = create<NotesState>()(
     }),
     {
       name: "bacheca-notes-v1",
-      storage: createJSONStorage(getStorage),
+      storage: createJSONStorage(quadroStorage),
       skipHydration: true,
       partialize: (state) => ({ notebooks: state.notebooks }),
       version: 3,
       migrate: (persisted) => {
-        const data = persisted as { notebooks?: Record<string, Note[]>; notes?: Note[] };
-        const notebooks = data.notebooks
-          ? data.notebooks
-          : { [DEFAULT_NOTES_ID]: data.notes ?? [] };
-        return {
-          notebooks: Object.fromEntries(
-            Object.entries(notebooks).map(([id, notes]) => [
-              id,
-              (notes ?? []).map((note) => ({
-                ...note,
-                attachments: note.attachments ?? [],
-              })),
-            ]),
-          ),
-        };
+        const data = isRecord(persisted) ? persisted : {};
+        // Before v2 there was a single notebook stored as `notes`.
+        const notebooks =
+          normalizeNotebooks(data.notebooks) ??
+          normalizeNotebooks({ [DEFAULT_NOTES_ID]: data.notes }) ??
+          {};
+        return { notebooks };
+      },
+      merge: (persisted, current) => {
+        const notebooks = normalizeNotebooks(isRecord(persisted) ? persisted.notebooks : undefined);
+        return notebooks ? { ...current, notebooks } : current;
       },
     },
   ),

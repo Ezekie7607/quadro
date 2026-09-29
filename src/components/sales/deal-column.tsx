@@ -77,9 +77,8 @@ export function DealColumn({
             onCheckedChange={onSelectColumn}
             aria-label={`Seleziona ${meta.title}`}
           />
-          <p className="text-xs font-medium tabular-nums text-muted-foreground">
-            <span className="sr-only">{pluralizeOfferte(deals.length)}</span>
-            <span aria-hidden="true">{deals.length}</span>
+          <p className="text-xs font-medium whitespace-nowrap tabular-nums text-muted-foreground">
+            {pluralizeOfferte(deals.length)}
           </p>
         </div>
       </header>

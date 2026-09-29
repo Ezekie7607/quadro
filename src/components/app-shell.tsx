@@ -1,6 +1,7 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { motion } from "motion/react";
+import { useQuietMotion } from "@/lib/use-quiet-motion";
 import {
   CalendarDays,
   ChartColumn,
@@ -38,11 +39,22 @@ import { TextScramble } from "@/components/motion/text-scramble";
 import { Tooltip } from "@/components/motion/tooltip";
 import { CommandPalette } from "@/components/command-palette";
 import { SpaceDialog, type SpaceEditor } from "@/components/spaces/space-dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { countAllBoards, countBoard, EMPTY_BOARD, useBoardHydrated, useBoardStore } from "@/lib/board-store";
 import { type BoardKit } from "@/lib/board-kits";
 import { QuadroMark } from "@/components/brand/logo";
 import { APP_NAME } from "@/lib/brand";
-import { EASE_OUT, SPRING_PRESS } from "@/lib/ease";
+import { SPRING_PRESS } from "@/lib/ease";
+import { isShortcutBlocked } from "@/lib/shortcuts";
 import {
   useSettingsHydrated,
   useSettingsStore,
@@ -71,17 +83,20 @@ const TYPE_ICONS = {
 } as const;
 
 export function AppShell({ children }: { children: ReactNode }) {
-  useBoardHydrated();
-  useNotesHydrated();
-  useSalesHydrated();
-  useSpacesHydrated();
-  useSettingsHydrated();
+  // Every store rehydrates from localStorage after mount. Pages wait for all
+  // five, so nobody sees the seed data first: no flash of sample cards, no
+  // "Non c’è più" for a space that simply has not loaded yet, and board or
+  // calendar defaults read from the real settings.
+  const boardReady = useBoardHydrated();
+  const notesReady = useNotesHydrated();
+  const salesReady = useSalesHydrated();
+  const spacesReady = useSpacesHydrated();
+  const settingsReady = useSettingsHydrated();
+  const hydrated = boardReady && notesReady && salesReady && spacesReady && settingsReady;
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const navigate = useNavigate();
   const studioName = useSettingsStore((s) => s.studioName);
   const density = useSettingsStore((s) => s.density);
-  const motionPref = useSettingsStore((s) => s.motion);
-  const scramblePref = useSettingsStore((s) => s.scramble);
   const toasts = useSettingsStore((s) => s.toasts);
   const shortcuts = useSettingsStore((s) => s.shortcuts);
   const spaces = useSpacesStore((s) => s.spaces);
@@ -95,11 +110,15 @@ export function AppShell({ children }: { children: ReactNode }) {
   const notesCount = countAllNotes(notebooks);
   const salesCount = countAllPipelines(pipelines);
   const [editor, setEditor] = useState<SpaceEditor | null>(null);
+  const [pendingSpaceDelete, setPendingSpaceDelete] = useState<Space | null>(null);
   const pendingCreate = useUiStore((s) => s.pendingCreate);
   const pendingSeq = useUiStore((s) => s.pendingSeq);
   const setPaletteOpen = useUiStore((s) => s.setPaletteOpen);
-  const systemReduce = useReducedMotion();
-  const reduce = Boolean(systemReduce) || motionPref === "reduce";
+  const reduce = useQuietMotion();
+  const firstPage = useRef(true);
+  useEffect(() => {
+    firstPage.current = false;
+  }, []);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -111,12 +130,40 @@ export function AppShell({ children }: { children: ReactNode }) {
     if (!shortcuts) return;
     function onKey(event: KeyboardEvent) {
       if (!(event.metaKey || event.ctrlKey) || event.key !== ",") return;
+      // Leaving the page here would throw away an open editor or a half-typed field.
+      if (isShortcutBlocked(event)) return;
       event.preventDefault();
       void navigate({ to: "/impostazioni" });
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [navigate, shortcuts]);
+
+  // Another tab wrote to the same studio: reload that store instead of letting
+  // this tab overwrite the newer data with its stale copy on the next change.
+  useEffect(() => {
+    const stores: Record<string, { persist: { rehydrate: () => unknown } }> = {
+      "quadro-spaces-v1": useSpacesStore,
+      "bacheca-v1": useBoardStore,
+      "bacheca-notes-v1": useNotesStore,
+      "bacheca-sales-v1": useSalesStore,
+      "quadro-settings-v1": useSettingsStore,
+    };
+    function onStorage(event: StorageEvent) {
+      if (event.storageArea !== window.localStorage) return;
+      const ours = event.key !== null && Object.hasOwn(stores, event.key);
+      // A removed key (another tab ran "Azzera") or a cleared storage (key null):
+      // start over from the defaults instead of keeping, and on the next change
+      // writing back, what this tab still holds in memory.
+      if (event.key === null || (ours && event.newValue === null)) {
+        window.location.reload();
+        return;
+      }
+      if (ours) void stores[event.key as string].persist.rehydrate();
+    }
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, []);
 
   useEffect(() => {
     if (useUiStore.getState().consumeCreate("space")) {
@@ -153,8 +200,16 @@ export function AppShell({ children }: { children: ReactNode }) {
     toast.success("Spazio aggiornato");
   }
 
+  function requestDelete(id: string) {
+    const space = spaces.find((item) => item.id === id);
+    if (!space) return;
+    setEditor(null);
+    setPendingSpaceDelete(space);
+  }
+
   function handleDelete(id: string) {
     const space = spaces.find((item) => item.id === id);
+    setPendingSpaceDelete(null);
     deleteSpace(id);
     if (space?.type === "board") useBoardStore.getState().removeBoard(id);
     if (space?.type === "sales") useSalesStore.getState().removeSales(id);
@@ -184,6 +239,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <AnimatedSidebarProvider
+      keyboardShortcut={shortcuts}
       className="app-stage h-dvh min-h-0 overflow-hidden"
       style={{
         "--sidebar-width": "16.5rem",
@@ -205,10 +261,13 @@ export function AppShell({ children }: { children: ReactNode }) {
           >
             <QuadroMark className="size-8" animate />
             <div className="min-w-0 flex-1 group-data-[state=collapsed]/sidebar:hidden">
-              <p className="truncate text-sm font-semibold text-foreground">{APP_NAME}</p>
+              <p className="truncate font-display text-sm font-medium tracking-[0.18em] text-foreground uppercase">
+                {APP_NAME}
+              </p>
               <p className="truncate text-xs text-muted-foreground">{studioName}</p>
             </div>
-            <ChevronsUpDown className="size-4 shrink-0 text-muted-foreground group-data-[state=collapsed]/sidebar:hidden" />
+            {/* On phones the close button sits in this corner. */}
+            <ChevronsUpDown className="size-4 shrink-0 text-muted-foreground group-data-[state=collapsed]/sidebar:hidden max-md:hidden" />
           </button>
           <AnimatedSidebarClose className="absolute top-3 right-3 text-muted-foreground hover:bg-muted md:hidden">
             <X className="size-4" />
@@ -251,19 +310,22 @@ export function AppShell({ children }: { children: ReactNode }) {
             <AnimatedSidebarGroupContent>
               <AnimatedSidebarMenu>
                 {spaces.map((space) => (
-                  <SpaceRow
-                    key={space.id}
-                    space={space}
-                    count={spaceCount(space)}
-                    active={currentSpaceId === space.id}
-                    onOpen={() =>
-                      void navigate({
-                        to: "/spazio/$spaceId",
-                        params: { spaceId: space.id },
-                      })
-                    }
-                    onEdit={() => setEditor({ mode: "edit", space })}
-                  />
+                  // The menu item sits right in the map so the hover pill, which
+                  // decorates each direct child, reaches the space rows too.
+                  <AnimatedSidebarMenuItem key={space.id}>
+                    <SpaceRow
+                      space={space}
+                      count={spaceCount(space)}
+                      active={currentSpaceId === space.id}
+                      onOpen={() =>
+                        void navigate({
+                          to: "/spazio/$spaceId",
+                          params: { spaceId: space.id },
+                        })
+                      }
+                      onEdit={() => setEditor({ mode: "edit", space })}
+                    />
+                  </AnimatedSidebarMenuItem>
                 ))}
               </AnimatedSidebarMenu>
             </AnimatedSidebarGroupContent>
@@ -310,7 +372,8 @@ export function AppShell({ children }: { children: ReactNode }) {
             </AnimatedSidebarTrigger>
           </Tooltip>
           <p className="min-w-0 flex-1 truncate font-display text-lg font-medium tracking-wide text-foreground uppercase">
-            <TextScramble key={mobileTitle} text={mobileTitle} playOnMount duration={480} />
+            {/* A page title, not a menu label: no scramble (§15). */}
+            {mobileTitle}
           </p>
           <IconRoundButton
             label="Cerca"
@@ -327,18 +390,24 @@ export function AppShell({ children }: { children: ReactNode }) {
             side="bottom"
           />
         </header>
-        <AnimatePresence mode="wait" initial={false}>
-          <motion.div
-            key={pathname}
-            initial={reduce ? { opacity: 0 } : { opacity: 0, y: 12, filter: "blur(8px)" }}
-            animate={reduce ? { opacity: 1 } : { opacity: 1, y: 0, filter: "blur(0px)" }}
-            exit={reduce ? { opacity: 0 } : { opacity: 0, y: -8, filter: "blur(6px)" }}
-            transition={{ duration: reduce ? 0.12 : 0.32, ease: EASE_OUT }}
-            className="min-h-0 flex-1 overflow-hidden"
-          >
-            {children}
-          </motion.div>
-        </AnimatePresence>
+        {/* Enter-only transition. With an exit phase (AnimatePresence "wait") the
+            outgoing copy rendered the new route too, so every page mounted
+            twice and a dialog opened from the palette left with the copy. */}
+        <motion.div
+          key={pathname}
+          initial={
+            firstPage.current
+              ? false
+              : reduce
+                ? { opacity: 0 }
+                : { opacity: 0, y: 12, filter: "blur(8px)" }
+          }
+          animate={reduce ? { opacity: 1 } : { opacity: 1, y: 0, filter: "blur(0px)" }}
+          transition={{ duration: reduce ? 0.12 : 0.32, ease: PAGE_EASE }}
+          className="min-h-0 flex-1 overflow-hidden"
+        >
+          {hydrated ? children : null}
+        </motion.div>
       </AnimatedSidebarInset>
 
       <CommandPalette />
@@ -350,8 +419,37 @@ export function AppShell({ children }: { children: ReactNode }) {
         }}
         onCreate={handleCreate}
         onRename={handleRename}
-        onDelete={handleDelete}
+        onDelete={requestDelete}
       />
+
+      <AlertDialog
+        open={pendingSpaceDelete !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingSpaceDelete(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {pendingSpaceDelete ? `Eliminare “${pendingSpaceDelete.title}”?` : "Eliminare lo spazio?"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingSpaceDelete ? describeSpaceLoss(pendingSpaceDelete, spaceCount(pendingSpaceDelete)) : null}{" "}
+              Non si può annullare.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Annulla</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (pendingSpaceDelete) handleDelete(pendingSpaceDelete.id);
+              }}
+            >
+              Elimina
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {toasts ? (
         <Toaster
@@ -366,12 +464,26 @@ export function AppShell({ children }: { children: ReactNode }) {
   );
 }
 
+/** Spec page ease (§15): cubic-bezier(0.22, 1, 0.36, 1). */
+const PAGE_EASE = [0.22, 1, 0.36, 1] as const;
+
+function describeSpaceLoss(space: Space, count: number) {
+  if (count === 0) return "Lo spazio è vuoto.";
+  const what =
+    space.type === "board"
+      ? pluralizeSchede(count)
+      : space.type === "sales"
+        ? pluralizeOfferte(count)
+        : pluralizeNote(count);
+  return count === 1 ? `Con lo spazio se ne va ${what}.` : `Con lo spazio se ne vanno ${what}.`;
+}
+
 function OpenScramble({ text }: { text: string }) {
   const { isMobile, open, openMobile } = useAnimatedSidebar();
   const scramble = useSettingsStore((s) => s.scramble);
-  const motionPref = useSettingsStore((s) => s.motion);
+  const quiet = useQuietMotion();
   const revealed = isMobile ? openMobile : open;
-  if (!revealed || !scramble || motionPref === "reduce") return <>{text}</>;
+  if (!revealed || !scramble || quiet) return <>{text}</>;
   return <TextScramble text={text} playOnMount duration={Math.min(720, 480 + text.length * 22)} />;
 }
 
@@ -391,7 +503,7 @@ function SpacesLabel({ onAdd }: { onAdd: () => void }) {
             type="button"
             onClick={onAdd}
             aria-label="Aggiungi spazio"
-            className="inline-flex size-7 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
+            className="-my-2 inline-flex size-10 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground"
           >
             <Plus className="size-3.5" />
           </button>
@@ -413,7 +525,7 @@ function SidebarStats({
   const collapsed = useRailCollapsed();
   if (collapsed) return null;
   return (
-    <p className="hidden px-3 pt-1 text-xs text-muted-foreground md:block">
+    <p className="px-3 pt-1 text-xs text-muted-foreground">
       {pluralizeSchede(boardCount)} · {pluralizeOfferte(salesCount)} · {pluralizeNote(notesCount)}
     </p>
   );
@@ -434,7 +546,7 @@ function IconRoundButton({
   side?: "top" | "right" | "bottom" | "left";
   children: ReactNode;
 }) {
-  const reduce = useReducedMotion();
+  const reduce = useQuietMotion();
   return (
     <Tooltip content={hint} side={side}>
       <motion.button
@@ -464,7 +576,7 @@ function SettingsIconButton({
   onClick: () => void;
   side?: "top" | "right" | "bottom" | "left";
 }) {
-  const reduce = useReducedMotion();
+  const reduce = useQuietMotion();
   const [hot, setHot] = useState(false);
 
   return (
@@ -512,29 +624,27 @@ function SpaceRow({
   const collapsed = useRailCollapsed();
   const Icon = TYPE_ICONS[space.type];
   return (
-    <AnimatedSidebarMenuItem>
-      <div className="flex min-w-0 items-center">
-        <AnimatedSidebarMenuButton
-          icon={<Icon className="size-4" />}
-          isActive={active}
-          badge={count}
-          label={space.title}
-          onSelect={onOpen}
-          className="min-w-0 flex-1"
+    <div className="flex min-w-0 items-center">
+      <AnimatedSidebarMenuButton
+        icon={<Icon className="size-4" />}
+        isActive={active}
+        badge={count}
+        label={space.title}
+        onSelect={onOpen}
+        className="min-w-0 flex-1"
+      >
+        <OpenScramble text={space.title} />
+      </AnimatedSidebarMenuButton>
+      {!collapsed ? (
+        <button
+          type="button"
+          onClick={onEdit}
+          aria-label={`Modifica ${space.title}`}
+          className="inline-flex size-10 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground"
         >
-          <OpenScramble text={space.title} />
-        </AnimatedSidebarMenuButton>
-        {!collapsed ? (
-          <button
-            type="button"
-            onClick={onEdit}
-            aria-label={`Modifica ${space.title}`}
-            className="inline-flex size-9 shrink-0 items-center justify-center rounded-2xl text-muted-foreground hover:bg-muted hover:text-foreground"
-          >
-            <MoreHorizontal className="size-4" />
-          </button>
-        ) : null}
-      </div>
-    </AnimatedSidebarMenuItem>
+          <MoreHorizontal className="size-4" />
+        </button>
+      ) : null}
+    </div>
   );
 }

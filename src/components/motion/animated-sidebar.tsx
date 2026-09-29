@@ -5,9 +5,10 @@ import {
   AnimatePresence,
   type HTMLMotionProps,
   motion,
-  useReducedMotion,
   type Variants,
 } from "motion/react";
+import { useQuietMotion } from "@/lib/use-quiet-motion";
+import { isShortcutBlocked } from "@/lib/shortcuts";
 import {
   type ButtonHTMLAttributes,
   type CSSProperties,
@@ -205,6 +206,8 @@ export interface AnimatedSidebarProviderProps
   openMobile?: boolean;
   defaultOpenMobile?: boolean;
   onOpenMobileChange?: (open: boolean) => void;
+  /** ⌘B / Ctrl+B toggles the menu; off when the studio disables shortcuts. */
+  keyboardShortcut?: boolean;
   style?: SidebarProviderStyle;
 }
 
@@ -216,6 +219,7 @@ export function AnimatedSidebarProvider({
   openMobile,
   defaultOpenMobile = false,
   onOpenMobileChange,
+  keyboardShortcut = true,
   className,
   style,
   ...props
@@ -224,7 +228,7 @@ export function AnimatedSidebarProvider({
   const [internalOpenMobile, setInternalOpenMobile] =
     useState(defaultOpenMobile);
   const isMobile = useIsMobile();
-  const reduce = useReducedMotion() ?? false;
+  const reduce = useQuietMotion();
   const generatedId = useId();
   const triggerRef = useRef<HTMLButtonElement>(null);
   const desktopOpen = open ?? internalOpen;
@@ -252,10 +256,12 @@ export function AnimatedSidebarProvider({
   }, [desktopOpen, isMobile, mobileOpen, setOpen, setOpenMobile]);
 
   useEffect(() => {
+    if (!keyboardShortcut) return;
     const handleShortcut = (event: KeyboardEvent) => {
       if (
         event.key.toLowerCase() === SIDEBAR_KEYBOARD_SHORTCUT &&
-        (event.metaKey || event.ctrlKey)
+        (event.metaKey || event.ctrlKey) &&
+        !isShortcutBlocked(event)
       ) {
         event.preventDefault();
         toggleSidebar();
@@ -264,7 +270,7 @@ export function AnimatedSidebarProvider({
 
     window.addEventListener("keydown", handleShortcut);
     return () => window.removeEventListener("keydown", handleShortcut);
-  }, [toggleSidebar]);
+  }, [keyboardShortcut, toggleSidebar]);
 
   return (
     <AnimatedSidebarContext.Provider
@@ -396,7 +402,7 @@ function MobileSidebar({
         }
         onClick={() => context.setOpenMobile(false)}
         className={cn(
-          "fixed inset-0 bg-black/40",
+          "fixed inset-0 bg-overlay",
           context.openMobile
             ? "pointer-events-auto"
             : "pointer-events-none",
@@ -586,8 +592,7 @@ export const AnimatedSidebar = forwardRef<HTMLElement, AnimatedSidebarProps>(
   },
 );
 
-export interface AnimatedSidebarTriggerProps
-  extends ButtonHTMLAttributes<HTMLButtonElement> {}
+export type AnimatedSidebarTriggerProps = ButtonHTMLAttributes<HTMLButtonElement>;
 
 export const AnimatedSidebarTrigger = forwardRef<
   HTMLButtonElement,
@@ -625,8 +630,7 @@ export const AnimatedSidebarTrigger = forwardRef<
   );
 });
 
-export interface AnimatedSidebarCloseProps
-  extends ButtonHTMLAttributes<HTMLButtonElement> {}
+export type AnimatedSidebarCloseProps = ButtonHTMLAttributes<HTMLButtonElement>;
 
 export const AnimatedSidebarClose = forwardRef<
   HTMLButtonElement,
@@ -658,8 +662,7 @@ export const AnimatedSidebarClose = forwardRef<
   );
 });
 
-export interface AnimatedSidebarRailProps
-  extends ButtonHTMLAttributes<HTMLButtonElement> {}
+export type AnimatedSidebarRailProps = ButtonHTMLAttributes<HTMLButtonElement>;
 
 export const AnimatedSidebarRail = forwardRef<
   HTMLButtonElement,
@@ -694,8 +697,7 @@ export const AnimatedSidebarRail = forwardRef<
   );
 });
 
-export interface AnimatedSidebarInsetProps
-  extends HTMLMotionProps<"main"> {}
+export type AnimatedSidebarInsetProps = HTMLMotionProps<"main">;
 
 export const AnimatedSidebarInset = forwardRef<
   HTMLElement,

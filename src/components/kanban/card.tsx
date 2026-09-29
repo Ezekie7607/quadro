@@ -45,67 +45,74 @@ export function KanbanCardView({
         selected && "is-selected",
       )}
     >
+      {/* Controls stacked in one narrow rail and the bin on the chip row: at
+          1024px with the menu open a column is about 225px wide, and three
+          controls in a row left the title some 60px. */}
       <div className="flex items-start gap-1">
-        {onToggleSelect ? (
-          <Checkbox
-            checked={selected}
-            aria-label={selected ? `Deseleziona ${card.title}` : `Seleziona ${card.title}`}
-            onCheckedChange={() => onToggleSelect()}
-            className="mt-1.5 size-8 justify-center"
-          />
-        ) : null}
-        <Tooltip content="Trascina" side="top">
-          <button
-            type="button"
-            className="mt-0.5 inline-flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors duration-quick hover:bg-accent hover:text-foreground touch-none"
-            aria-label="Trascina scheda"
-            {...attributes}
-            {...listeners}
-          >
-            <GripVertical className="size-4" />
-          </button>
-        </Tooltip>
-        <button
-          type="button"
-          onClick={onEdit}
-          className="min-w-0 flex-1 rounded-md px-1 py-0.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-        >
-          <h3 className="text-sm font-medium leading-snug text-foreground">
-            {card.title}
-          </h3>
-          {card.description ? (
-            <p className="mt-1 line-clamp-3 text-sm leading-normal text-muted-foreground">
-              {card.description}
-            </p>
+        <div className="flex shrink-0 flex-col items-center">
+          {onToggleSelect ? (
+            <Checkbox
+              checked={selected}
+              aria-label={selected ? `Deseleziona ${card.title}` : `Seleziona ${card.title}`}
+              onCheckedChange={() => onToggleSelect()}
+              className="size-8 justify-center"
+            />
           ) : null}
-          <div className="mt-2 flex flex-wrap items-center gap-1">
-            <p
-              className={cn(
-                "inline-flex rounded-full px-2 py-0.5 font-display text-xs tracking-[0.12em] uppercase",
-                card.priority === "high" && "bg-foreground text-background",
-                card.priority === "med" && "bg-accent text-foreground",
-                card.priority === "low" && "bg-muted text-muted-foreground",
-              )}
-            >
-              {PRIORITY_META[card.priority ?? "med"].title}
-            </p>
-            {card.dueDate ? <DueChip iso={card.dueDate} /> : null}
-          </div>
-        </button>
-        {onDelete ? (
-          <Tooltip content="Elimina" side="left">
+          <Tooltip content="Trascina" side="top">
             <button
               type="button"
-              onClick={onDelete}
-              aria-label={`Elimina ${card.title}`}
-              className="relative mt-0.5 inline-flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors duration-quick hover:bg-destructive/10 hover:text-destructive focus-visible:text-destructive focus-visible:ring-2 focus-visible:ring-ring/40 after:absolute after:top-1/2 after:left-1/2 after:size-11 after:-translate-x-1/2 after:-translate-y-1/2 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100"
+              className="inline-flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors duration-quick hover:bg-accent hover:text-foreground touch-none"
+              aria-label="Trascina scheda"
+              {...attributes}
+              {...listeners}
             >
-              <Trash2 className="size-4" />
+              <GripVertical className="size-4" />
             </button>
           </Tooltip>
-        ) : (
-          <span className="size-8 shrink-0" aria-hidden="true" />
-        )}
+        </div>
+        <div className="min-w-0 flex-1">
+          <button
+            type="button"
+            onClick={onEdit}
+            className="w-full rounded-md px-1 py-0.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+          >
+            <h3 className="text-sm font-medium leading-snug text-foreground">
+              {card.title}
+            </h3>
+            {card.description ? (
+              <p className="mt-1 line-clamp-3 text-sm leading-normal text-muted-foreground">
+                {card.description}
+              </p>
+            ) : null}
+          </button>
+          <div className="mt-2 flex items-center gap-1 pl-1">
+            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
+              <p
+                className={cn(
+                  "inline-flex rounded-full px-2 py-0.5 font-display text-xs tracking-[0.12em] uppercase",
+                  card.priority === "high" && "bg-foreground text-background",
+                  card.priority === "med" && "bg-accent text-foreground",
+                  card.priority === "low" && "bg-muted text-muted-foreground",
+                )}
+              >
+                {PRIORITY_META[card.priority ?? "med"].title}
+              </p>
+              {card.dueDate ? <DueChip iso={card.dueDate} /> : null}
+            </div>
+            {onDelete ? (
+              <Tooltip content="Elimina" side="left">
+                <button
+                  type="button"
+                  onClick={onDelete}
+                  aria-label={`Elimina ${card.title}`}
+                  className="relative inline-flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors duration-quick hover:bg-destructive/10 hover:text-destructive focus-visible:text-destructive focus-visible:ring-2 focus-visible:ring-ring/40 after:absolute after:top-1/2 after:left-1/2 after:size-11 after:-translate-x-1/2 after:-translate-y-1/2 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100"
+                >
+                  <Trash2 className="size-4" />
+                </button>
+              </Tooltip>
+            ) : null}
+          </div>
+        </div>
       </div>
     </article>
   );

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Paperclip, Plus, StickyNote, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { CreateAction, useCreateFlash } from "@/components/motion/submit-action";
@@ -17,16 +17,17 @@ import { SearchField } from "@/components/search-field";
 import { Checkbox } from "@/components/motion/checkbox";
 import { SelectionBar } from "@/components/selection-bar";
 import { SplitHeadline } from "@/components/split-headline";
-import { useNotesStore, type Note } from "@/lib/notes-store";
+import { EMPTY_NOTES, useNotesStore, type Note } from "@/lib/notes-store";
 import { SPACE_META } from "@/lib/spaces-store";
 import { groupCheckState, useSelection } from "@/lib/selection";
 import { formatRelativeTime } from "@/lib/dates";
 import { useQuietKeys } from "@/lib/use-quiet-keys";
-import { useUiStore } from "@/lib/ui-store";
+import { usePaletteRequests } from "@/lib/use-palette-requests";
 import { cn, pluralizeNote } from "@/lib/utils";
 
 export function NotesView({ spaceId, title }: { spaceId: string; title: string }) {
-  const notes = useNotesStore((s) => s.notebooks[spaceId] ?? []);
+  // A stable empty list: `?? []` would hand zustand a new array on every read.
+  const notes = useNotesStore((s) => s.notebooks[spaceId] ?? EMPTY_NOTES);
   const addNote = useNotesStore((s) => s.addNote);
   const updateNote = useNotesStore((s) => s.updateNote);
   const deleteNote = useNotesStore((s) => s.deleteNote);
@@ -38,14 +39,28 @@ export function NotesView({ spaceId, title }: { spaceId: string; title: string }
   const [query, setQuery] = useState("");
   const selection = useSelection();
   const createCta = useCreateFlash();
-  const pendingCreate = useUiStore((s) => s.pendingCreate);
-  const pendingSeq = useUiStore((s) => s.pendingSeq);
   useQuietKeys({ onNew: () => setEditor({ mode: "create" }) });
-  useEffect(() => {
-    if (useUiStore.getState().consumeCreate("note")) {
-      setEditor({ mode: "create" });
-    }
-  }, [pendingCreate, pendingSeq]);
+  usePaletteRequests({
+    kind: "note",
+    spaceId,
+    onCreate: () => setEditor({ mode: "create" }),
+    onOpen: (noteId) => {
+      setQuery("");
+      openEdit(noteId);
+    },
+  });
+
+  function openEdit(noteId: string) {
+    const note = useNotesStore.getState().notebooks[spaceId]?.find((item) => item.id === noteId);
+    if (!note) return;
+    setEditor({
+      mode: "edit",
+      noteId: note.id,
+      title: note.title,
+      body: note.body,
+      attachments: note.attachments ?? [],
+    });
+  }
 
   const pending = pendingDelete
     ? notes.find((note) => note.id === pendingDelete)
@@ -162,15 +177,7 @@ export function NotesView({ spaceId, title }: { spaceId: string; title: string }
               fresh={freshId === note.id}
               selected={selection.selected.has(note.id)}
               onToggleSelect={() => selection.toggle(note.id)}
-              onEdit={() =>
-                setEditor({
-                  mode: "edit",
-                  noteId: note.id,
-                  title: note.title,
-                  body: note.body,
-                  attachments: note.attachments ?? [],
-                })
-              }
+              onEdit={() => openEdit(note.id)}
               onDelete={() => setPendingDelete(note.id)}
             />
           ))}
@@ -221,7 +228,7 @@ export function NotesView({ spaceId, title }: { spaceId: string; title: string }
             </AlertDialogTitle>
             <AlertDialogDescription>
               {pendingBulk
-                ? `${selection.selected.size} note verranno rimosse. Non si può annullare.`
+                ? `${selection.selected.size === 1 ? "1 nota verrà rimossa" : `${selection.selected.size} note verranno rimosse`}. Non si può annullare.`
                 : pending
                   ? `“${pending.title}” verrà rimossa. Non si può annullare.`
                   : "La nota verrà rimossa."}

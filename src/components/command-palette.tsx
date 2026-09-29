@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "@tanstack/react-router";
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { useNavigate, useRouterState } from "@tanstack/react-router";
+import { AnimatePresence, motion } from "motion/react";
+import { useQuietMotion } from "@/lib/use-quiet-motion";
 import {
   CalendarDays,
   ChartColumn,
@@ -18,13 +19,20 @@ import { EASE_OUT, SPRING_LAYOUT } from "@/lib/ease";
 import { useNotesStore } from "@/lib/notes-store";
 import { STAGE_META, findStageOf, useSalesStore } from "@/lib/sales-store";
 import { useSettingsStore } from "@/lib/settings-store";
-import { SPACE_META, useSpacesStore } from "@/lib/spaces-store";
-import { useUiStore, type CreateKind } from "@/lib/ui-store";
+import { SPACE_META, useSpacesStore, type SpaceType } from "@/lib/spaces-store";
+import { isDialogOpen, isTypingTarget } from "@/lib/shortcuts";
+import { useUiStore, type CreateKind, type OpenTarget } from "@/lib/ui-store";
 import { cn, formatEuro } from "@/lib/utils";
+
+const GROUP_ORDER = ["Vai", "Crea", "Schede", "Note", "Offerte"] as const;
+type HitGroup = (typeof GROUP_ORDER)[number];
+
+/** Enough to scan with the arrows; the empty palette always lists everything. */
+const MAX_RESULTS = 30;
 
 type Hit = {
   id: string;
-  group: string;
+  group: HitGroup;
   title: string;
   hint: string;
   icon: LucideIcon;
@@ -35,8 +43,9 @@ export function CommandPalette() {
   const open = useUiStore((s) => s.paletteOpen);
   const setOpen = useUiStore((s) => s.setPaletteOpen);
   const shortcuts = useSettingsStore((s) => s.shortcuts);
-  const reduce = useReducedMotion();
+  const reduce = useQuietMotion();
   const navigate = useNavigate();
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
   const spaces = useSpacesStore((s) => s.spaces);
   const boards = useBoardStore((s) => s.boards);
   const notebooks = useNotesStore((s) => s.notebooks);
@@ -50,8 +59,16 @@ export function CommandPalette() {
     if (!shortcuts) return;
     function onKey(event: KeyboardEvent) {
       if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "k") return;
+      // An open palette always closes; opening waits while someone types or a
+      // dialog is up, where the palette would open hidden behind it.
+      if (useUiStore.getState().paletteOpen) {
+        event.preventDefault();
+        setOpen(false);
+        return;
+      }
+      if (event.repeat || isTypingTarget(event.target) || isDialogOpen()) return;
       event.preventDefault();
-      setOpen(!useUiStore.getState().paletteOpen);
+      setOpen(true);
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -79,25 +96,41 @@ export function CommandPalette() {
       else if (to === "/impostazioni") void navigate({ to: "/impostazioni" });
       else void navigate({ to: "/" });
     };
+    const currentId = pathname.startsWith("/spazio/")
+      ? decodeURIComponent(pathname.slice("/spazio/".length))
+      : null;
+    const targetSpace = (type: SpaceType) =>
+      spaces.find((item) => item.id === currentId && item.type === type) ??
+      spaces.find((item) => item.type === type);
+    const createHint = (type: SpaceType, here: string, first: string) =>
+      spaces.some((item) => item.id === currentId && item.type === type) ? here : first;
+
     const create = (kind: CreateKind) => {
-      const type = kind === "card" ? "board" : kind === "deal" ? "sales" : kind === "note" ? "notes" : null;
+      const type =
+        kind === "card" ? "board" : kind === "deal" ? "sales" : kind === "note" ? "notes" : null;
       if (!type) {
         useUiStore.getState().requestCreate("space");
         return;
       }
-      const space = spaces.find((item) => item.type === type);
+      // The space on screen when it is of the right kind, the first one otherwise.
+      const space = targetSpace(type);
       if (!space) {
         useUiStore.getState().requestCreate("space");
         return;
       }
-      useUiStore.getState().requestCreate(kind);
+      useUiStore.getState().requestCreate(kind, space.id);
       void navigate({ to: "/spazio/$spaceId", params: { spaceId: space.id } });
     };
 
-    const items: { hit: Hit; score: number }[] = [];
+    const openItem = (target: OpenTarget) => {
+      useUiStore.getState().requestOpen(target);
+      void navigate({ to: "/spazio/$spaceId", params: { spaceId: target.spaceId } });
+    };
+
+    const items: { hit: Hit; score: number; order: number }[] = [];
     const push = (hit: Hit, ...parts: string[]) => {
       const score = rank(needle, ...parts);
-      if (score > 0) items.push({ hit, score });
+      if (score > 0) items.push({ hit, score, order: items.length });
     };
 
     push(
@@ -134,12 +167,29 @@ export function CommandPalette() {
       "impostazioni settings studio",
     );
 
+    for (const space of spaces) {
+      const Icon =
+        space.type === "board" ? Columns3 : space.type === "sales" ? CircleDollarSign : StickyNote;
+      push(
+        {
+          id: `space-${space.id}`,
+          group: "Vai",
+          title: space.title,
+          hint: SPACE_META[space.type].hint,
+          icon: Icon,
+          run: () => go("/spazio/$spaceId", { spaceId: space.id }),
+        },
+        space.title,
+        SPACE_META[space.type].title,
+      );
+    }
+
     push(
       {
         id: "act-card",
         group: "Crea",
         title: "Nuova scheda",
-        hint: "Nella prima bacheca",
+        hint: createHint("board", "In questa bacheca", "Nella prima bacheca"),
         icon: FileText,
         run: () => create("card"),
       },
@@ -150,7 +200,7 @@ export function CommandPalette() {
         id: "act-note",
         group: "Crea",
         title: "Nuova nota",
-        hint: "Nel primo taccuino",
+        hint: createHint("notes", "In queste note", "Nel primo taccuino"),
         icon: StickyNote,
         run: () => create("note"),
       },
@@ -161,7 +211,7 @@ export function CommandPalette() {
         id: "act-deal",
         group: "Crea",
         title: "Nuova offerta",
-        hint: "Nella pipeline",
+        hint: createHint("sales", "In queste vendite", "Nella prima pipeline"),
         icon: CircleDollarSign,
         run: () => create("deal"),
       },
@@ -179,23 +229,6 @@ export function CommandPalette() {
       "nuovo spazio",
     );
 
-    for (const space of spaces) {
-      const Icon =
-        space.type === "board" ? Columns3 : space.type === "sales" ? CircleDollarSign : StickyNote;
-      push(
-        {
-          id: `space-${space.id}`,
-          group: "Spazi",
-          title: space.title,
-          hint: SPACE_META[space.type].hint,
-          icon: Icon,
-          run: () => go("/spazio/$spaceId", { spaceId: space.id }),
-        },
-        space.title,
-        SPACE_META[space.type].title,
-      );
-    }
-
     if (needle) {
       for (const space of spaces) {
         if (space.type !== "board") continue;
@@ -210,7 +243,7 @@ export function CommandPalette() {
               title: card.title,
               hint: `${space.title} · ${columnId ? COLUMN_META[columnId].title : "Scheda"}`,
               icon: FileText,
-              run: () => go("/spazio/$spaceId", { spaceId: space.id }),
+              run: () => openItem({ kind: "card", spaceId: space.id, id: card.id }),
             },
             card.title,
             card.description,
@@ -228,7 +261,7 @@ export function CommandPalette() {
               title: note.title,
               hint: space.title,
               icon: StickyNote,
-              run: () => go("/spazio/$spaceId", { spaceId: space.id }),
+              run: () => openItem({ kind: "note", spaceId: space.id, id: note.id }),
             },
             note.title,
             note.body,
@@ -249,7 +282,7 @@ export function CommandPalette() {
               title: deal.title,
               hint: `${deal.client || space.title}${stageId ? ` · ${STAGE_META[stageId].title}` : ""} · ${formatEuro(deal.value)}`,
               icon: CircleDollarSign,
-              run: () => go("/spazio/$spaceId", { spaceId: space.id }),
+              run: () => openItem({ kind: "deal", spaceId: space.id, id: deal.id }),
             },
             deal.title,
             deal.client,
@@ -260,17 +293,26 @@ export function CommandPalette() {
       }
     }
 
-    items.sort((a, b) => b.score - a.score || a.hit.title.localeCompare(b.hit.title, "it"));
+    // Groups always come in the brief's order (Vai, Crea, then results); inside
+    // a group the best match leads and ties keep their natural order. Sorting
+    // across groups by score, then title, interleaved them and repeated headers.
+    items.sort(
+      (a, b) =>
+        GROUP_ORDER.indexOf(a.hit.group) - GROUP_ORDER.indexOf(b.hit.group) ||
+        b.score - a.score ||
+        a.order - b.order,
+    );
+    const limit = needle ? MAX_RESULTS : Number.POSITIVE_INFINITY;
     const seen = new Set<string>();
     const next: Hit[] = [];
     for (const item of items) {
       if (seen.has(item.hit.id)) continue;
       seen.add(item.hit.id);
       next.push(item.hit);
-      if (next.length >= 10) break;
+      if (next.length >= limit) break;
     }
     return next;
-  }, [boards, navigate, notebooks, pipelines, query, setOpen, spaces]);
+  }, [boards, navigate, notebooks, pathname, pipelines, query, setOpen, spaces]);
 
   useEffect(() => {
     setActive(0);
@@ -306,9 +348,22 @@ export function CommandPalette() {
           />
           <motion.div
             role="dialog"
+            onKeyDown={(event) => {
+              // Esc works wherever focus is inside the palette, and Tab stays in
+              // it: the list is driven by the arrows from the field.
+              if (event.key === "Escape") {
+                event.preventDefault();
+                setOpen(false);
+              } else if (event.key === "Tab") {
+                event.preventDefault();
+                inputRef.current?.focus();
+              }
+            }}
             aria-modal="true"
             aria-label="Cerca in Quadro"
-            initial={reduce ? { opacity: 0 } : { opacity: 0, y: 16, filter: "blur(10px)", scale: 0.98 }}
+            initial={
+              reduce ? { opacity: 0 } : { opacity: 0, y: 16, filter: "blur(10px)", scale: 0.98 }
+            }
             animate={reduce ? { opacity: 1 } : { opacity: 1, y: 0, filter: "blur(0px)", scale: 1 }}
             exit={reduce ? { opacity: 0 } : { opacity: 0, y: 8, filter: "blur(8px)", scale: 0.98 }}
             transition={reduce ? { duration: 0.12 } : SPRING_LAYOUT}
@@ -320,6 +375,11 @@ export function CommandPalette() {
                 ref={inputRef}
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
+                onBlur={(event) => {
+                  // A dialog closing just before the palette opened hands focus back
+                  // to the page a beat later; take it back so typing lands here.
+                  if (!event.relatedTarget) requestAnimationFrame(() => inputRef.current?.focus());
+                }}
                 placeholder="Cerca schede, note, spazi…"
                 aria-label="Cerca"
                 className="h-14 min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-muted-foreground"
@@ -351,7 +411,9 @@ export function CommandPalette() {
             </div>
             <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto p-2">
               {hits.length === 0 ? (
-                <p className="px-3 py-8 text-center text-sm text-muted-foreground">Niente trovato</p>
+                <p className="px-3 py-8 text-center text-sm text-muted-foreground">
+                  Niente trovato
+                </p>
               ) : (
                 hits.map((hit, index) => {
                   const Icon = hit.icon;

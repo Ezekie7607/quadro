@@ -48,6 +48,7 @@ export function DealDialog({ editor, onOpenChange, onSubmit }: DealDialogProps) 
   const [notes, setNotes] = useState("");
   const [stageId, setStageId] = useState<StageId>("lead");
   const [error, setError] = useState<string | null>(null);
+  const [valueError, setValueError] = useState<string | null>(null);
   const isEdit = editor?.mode === "edit";
   const { phase, commit } = useSwapSubmit(onSubmit, open);
 
@@ -67,6 +68,7 @@ export function DealDialog({ editor, onOpenChange, onSubmit }: DealDialogProps) 
       setStageId(editor.stageId);
     }
     setError(null);
+    setValueError(null);
   }, [editor]);
 
   function handleSubmit(event: FormEvent) {
@@ -74,6 +76,16 @@ export function DealDialog({ editor, onOpenChange, onSubmit }: DealDialogProps) 
     const nextTitle = title.trim();
     if (!nextTitle) {
       setError("Serve un titolo");
+      return;
+    }
+    // Whole euros, never negative (§7): say so instead of quietly flipping
+    // "-300" into 300 or turning a typo into 0.
+    if (value.includes("-")) {
+      setValueError("Il valore non può essere negativo");
+      return;
+    }
+    if (value.trim() && !/\d/.test(value)) {
+      setValueError("Scrivi un importo in euro, ad esempio 1.500");
       return;
     }
     commit({
@@ -131,10 +143,15 @@ export function DealDialog({ editor, onOpenChange, onSubmit }: DealDialogProps) 
                 id="deal-value"
                 inputMode="numeric"
                 value={value}
-                onChange={(event) => setValue(event.target.value)}
+                onChange={(event) => {
+                  setValue(event.target.value);
+                  if (valueError) setValueError(null);
+                }}
                 placeholder="0"
                 autoComplete="off"
+                aria-invalid={valueError ? true : undefined}
               />
+              {valueError ? <p className="text-sm text-destructive">{valueError}</p> : null}
             </div>
           </div>
 
@@ -156,6 +173,7 @@ export function DealDialog({ editor, onOpenChange, onSubmit }: DealDialogProps) 
                 <button
                   key={id}
                   type="button"
+                  aria-pressed={stageId === id}
                   onClick={() => setStageId(id)}
                   className={cn(
                     "h-11 rounded-xl border px-2 text-xs font-medium transition-colors duration-quick sm:text-sm",

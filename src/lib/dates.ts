@@ -9,8 +9,10 @@ const WEEKDAYS_LONG = [
   "domenica",
 ] as const;
 
+/** A real calendar day as YYYY-MM-DD: "2026-02-31" has the shape but no cell in any calendar. */
 export function isIsoDate(value: unknown): value is string {
-  return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value);
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  return toIsoDate(parseIsoDate(value)) === value;
 }
 
 export function toIsoDate(date: Date) {
@@ -100,6 +102,31 @@ export function formatDueLabel(iso: string) {
   return formatDayShort(iso);
 }
 
+const DAY_MS = 86_400_000;
+
+/** Whole calendar days from today to `iso`; negative when it is past. */
+export function daysFromToday(iso: string, today = todayIso()) {
+  // Noon on both sides keeps a DST change from shaving an hour off the gap.
+  const a = parseIsoDate(today);
+  const b = parseIsoDate(iso);
+  a.setHours(12);
+  b.setHours(12);
+  return Math.round((b.getTime() - a.getTime()) / DAY_MS);
+}
+
+/**
+ * The relative chip label: "Oggi", "Domani", "Ieri", "Tra 3 g", "3 g fa".
+ * Past a month either way the short date says more than a day count.
+ */
+export function formatDueRelative(iso: string) {
+  const diff = daysFromToday(iso);
+  if (diff === 0) return "Oggi";
+  if (diff === 1) return "Domani";
+  if (diff === -1) return "Ieri";
+  if (Math.abs(diff) > 30) return formatDayShort(iso);
+  return diff > 0 ? `Tra ${diff} g` : `${-diff} g fa`;
+}
+
 export function formatDayHeading(iso: string) {
   const today = todayIso();
   if (iso === today) return "Oggi";
@@ -133,9 +160,14 @@ export function formatRelativeTime(ts: number) {
   if (diff < 45_000) return "Adesso";
   const minutes = Math.round(diff / 60_000);
   if (minutes < 60) return minutes === 1 ? "1 min fa" : `${minutes} min fa`;
-  const hours = Math.round(minutes / 60);
-  if (hours < 24) return hours === 1 ? "1 ora fa" : `${hours} ore fa`;
-  const days = Math.round(hours / 24);
+  // From a day on, count calendar days: 23 hours ago this morning is not "Ieri",
+  // and 36 hours ago can well be yesterday evening.
+  const days = -daysFromToday(toIsoDate(new Date(ts)));
+  if (days <= 0) {
+    // Same calendar day: at most 23 hours, even from 00:05 to 23:50.
+    const hours = Math.min(23, Math.round(minutes / 60));
+    return hours === 1 ? "1 ora fa" : `${hours} ore fa`;
+  }
   if (days === 1) return "Ieri";
   if (days < 7) return `${days} giorni fa`;
   return new Date(ts).toLocaleDateString("it-IT", {

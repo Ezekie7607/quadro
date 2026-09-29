@@ -4,7 +4,8 @@ import {
   Plus,
   X,
 } from "lucide-react";
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { AnimatePresence, motion } from "motion/react";
+import { useQuietMotion } from "@/lib/use-quiet-motion";
 import { type ComponentType, useEffect, useId, useRef, useState } from "react";
 import { EASE_OUT } from "@/lib/ease";
 import { cn } from "@/lib/utils";
@@ -42,7 +43,7 @@ export function BloomMenu({
   className,
 }: BloomMenuProps) {
   const [open, setOpen] = useState(false);
-  const reduce = useReducedMotion();
+  const reduce = useQuietMotion();
   const layoutId = useId();
   const ref = useRef<HTMLDivElement>(null);
 
@@ -70,7 +71,8 @@ export function BloomMenu({
 
       <div
         className={cn(
-          "pointer-events-none absolute top-1/2 z-40 grid h-[300px] w-[min(86vw,420px)] -translate-y-1/2 place-items-center [&>*]:pointer-events-auto",
+          // Full row width on phones so the trigger lines up with the field above it.
+          "pointer-events-none absolute top-1/2 z-40 grid h-[300px] w-full -translate-y-1/2 place-items-center sm:w-[min(86vw,420px)] [&>*]:pointer-events-auto",
           align === "end"
             ? "right-0 translate-x-0"
             : "left-1/2 -translate-x-1/2",

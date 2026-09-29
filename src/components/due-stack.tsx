@@ -16,12 +16,15 @@ export type DueNotice = {
 export function DueStack({
   items,
   onViewAll,
+  onItemSelect,
   collapsedLabel = "Scadenze",
   expandedLabel = "Apri",
   className,
 }: {
   items: DueNotice[];
   onViewAll?: () => void;
+  /** A tap on one due card of the open list. */
+  onItemSelect?: (item: DueNotice) => void;
   collapsedLabel?: string;
   expandedLabel?: string;
   className?: string;
@@ -29,6 +32,7 @@ export function DueStack({
   const stackItems: NotificationStackItem[] = items.map((item) => ({
     id: `${item.spaceId}-${item.id}`,
     title: item.title,
+    // The chip says how far; the line says which day and where.
     description: `${item.spaceTitle} · ${formatDueLabel(item.dueDate)}`,
     trailing: <DueChip iso={item.dueDate} />,
   }));
@@ -37,6 +41,14 @@ export function DueStack({
     <NotificationStack
       items={stackItems}
       onViewAll={onViewAll}
+      onItemSelect={
+        onItemSelect
+          ? (stackId) => {
+              const item = items.find((entry) => `${entry.spaceId}-${entry.id}` === stackId);
+              if (item) onItemSelect(item);
+            }
+          : undefined
+      }
       maxVisible={3}
       collapsedLabel={collapsedLabel}
       expandedLabel={expandedLabel}

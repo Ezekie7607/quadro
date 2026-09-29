@@ -42,24 +42,38 @@ export function DealCardView({
         selected && "is-selected",
       )}
     >
+      {/* Select, drag and delete share one narrow rail so the text keeps the
+          width of the column, which is about 225px at 1024 with the menu open. */}
       <div className="flex items-start gap-1">
-        {onToggleSelect ? (
-          <Checkbox
-            checked={selected}
-            aria-label={selected ? `Deseleziona ${deal.title}` : `Seleziona ${deal.title}`}
-            onCheckedChange={() => onToggleSelect()}
-            className="mt-1.5 size-8 justify-center"
-          />
-        ) : null}
-        <button
-          type="button"
-          className="mt-0.5 inline-flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors duration-quick hover:bg-accent hover:text-foreground touch-none"
-          aria-label="Trascina offerta"
-          {...attributes}
-          {...listeners}
-        >
-          <GripVertical className="size-4" />
-        </button>
+        <div className="flex shrink-0 flex-col items-center">
+          {onToggleSelect ? (
+            <Checkbox
+              checked={selected}
+              aria-label={selected ? `Deseleziona ${deal.title}` : `Seleziona ${deal.title}`}
+              onCheckedChange={() => onToggleSelect()}
+              className="size-8 justify-center"
+            />
+          ) : null}
+          <button
+            type="button"
+            className="inline-flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors duration-quick hover:bg-accent hover:text-foreground touch-none"
+            aria-label="Trascina offerta"
+            {...attributes}
+            {...listeners}
+          >
+            <GripVertical className="size-4" />
+          </button>
+          {onDelete ? (
+            <button
+              type="button"
+              onClick={onDelete}
+              aria-label={`Elimina ${deal.title}`}
+              className="relative inline-flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors duration-quick hover:bg-destructive/10 hover:text-destructive focus-visible:text-destructive focus-visible:ring-2 focus-visible:ring-ring/40 after:absolute after:top-1/2 after:left-1/2 after:size-11 after:-translate-x-1/2 after:-translate-y-1/2 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100"
+            >
+              <Trash2 className="size-4" />
+            </button>
+          ) : null}
+        </div>
         <button
           type="button"
           onClick={onEdit}
@@ -76,18 +90,6 @@ export function DealCardView({
             </p>
           ) : null}
         </button>
-        {onDelete ? (
-          <button
-            type="button"
-            onClick={onDelete}
-            aria-label={`Elimina ${deal.title}`}
-            className="relative mt-0.5 inline-flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors duration-quick hover:bg-destructive/10 hover:text-destructive focus-visible:text-destructive focus-visible:ring-2 focus-visible:ring-ring/40 after:absolute after:top-1/2 after:left-1/2 after:size-11 after:-translate-x-1/2 after:-translate-y-1/2 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100"
-          >
-            <Trash2 className="size-4" />
-          </button>
-        ) : (
-          <span className="size-8 shrink-0" aria-hidden="true" />
-        )}
       </div>
     </article>
   );

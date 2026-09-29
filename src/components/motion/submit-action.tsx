@@ -1,7 +1,7 @@
 "use client";
 
 import { Check, Plus } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ActionSwapCascadeButton } from "@/components/motion/action-swap-cascade";
 import { cn } from "@/lib/utils";
 
@@ -10,26 +10,37 @@ const SWAP_MS = 560;
 export function useSwapSubmit<T>(onSubmit: (values: T) => void, open: boolean) {
   const [phase, setPhase] = useState<"idle" | "done">("idle");
   const timer = useRef(0);
+  // The save waiting for the label swap to play. The button already said
+  // "Aggiunta" / "Salvato", so closing the dialog early (Esc, the overlay,
+  // Annulla) or leaving the page runs it at once instead of dropping it.
+  const pending = useRef<(() => void) | null>(null);
+
+  const flush = useCallback(() => {
+    window.clearTimeout(timer.current);
+    const run = pending.current;
+    pending.current = null;
+    run?.();
+  }, []);
 
   useEffect(() => {
     if (open) return;
     setPhase("idle");
-    window.clearTimeout(timer.current);
-  }, [open]);
+    flush();
+  }, [open, flush]);
 
-  useEffect(() => () => window.clearTimeout(timer.current), []);
+  useEffect(() => flush, [flush]);
 
   function commit(values: T) {
     if (phase === "done") return;
     setPhase("done");
-    timer.current = window.setTimeout(() => onSubmit(values), SWAP_MS);
+    pending.current = () => onSubmit(values);
+    timer.current = window.setTimeout(flush, SWAP_MS);
   }
 
   return { phase, commit };
 }
 
-const CTA_CLASS =
-  "h-11 font-display text-xs font-medium tracking-[0.14em] uppercase";
+const CTA_CLASS = "h-11 font-display text-xs font-medium tracking-[0.14em] uppercase";
 
 export function SubmitAction({
   mode,
@@ -50,12 +61,32 @@ export function SubmitAction({
       items={
         mode === "edit"
           ? [
-              { id: "idle", label: "Salva", icon: <Check className="h-4 w-4" />, ariaLabel: "Salva" },
-              { id: "done", label: "Salvato", icon: <Check className="h-4 w-4" />, ariaLabel: "Salvato" },
+              {
+                id: "idle",
+                label: "Salva",
+                icon: <Check className="h-4 w-4" />,
+                ariaLabel: "Salva",
+              },
+              {
+                id: "done",
+                label: "Salvato",
+                icon: <Check className="h-4 w-4" />,
+                ariaLabel: "Salvato",
+              },
             ]
           : [
-              { id: "idle", label: "Aggiungi", icon: <Plus className="h-4 w-4" />, ariaLabel: "Aggiungi" },
-              { id: "done", label: "Aggiunta", icon: <Check className="h-4 w-4" />, ariaLabel: "Aggiunta" },
+              {
+                id: "idle",
+                label: "Aggiungi",
+                icon: <Plus className="h-4 w-4" />,
+                ariaLabel: "Aggiungi",
+              },
+              {
+                id: "done",
+                label: "Aggiunta",
+                icon: <Check className="h-4 w-4" />,
+                ariaLabel: "Aggiunta",
+              },
             ]
       }
       className={cn(CTA_CLASS, className)}

@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, useEffect } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   closestCorners,
   DndContext,
@@ -47,12 +47,14 @@ import {
   selectPipelineTotal,
   useSalesStore,
   type Deal,
+  type PipelineData,
   type StageId,
 } from "@/lib/sales-store";
 import { SPACE_META } from "@/lib/spaces-store";
 import { formatEuro, pluralizeOfferte } from "@/lib/utils";
 import { useQuietKeys } from "@/lib/use-quiet-keys";
-import { useUiStore } from "@/lib/ui-store";
+import { usePaletteRequests } from "@/lib/use-palette-requests";
+import { dndAccessibility } from "@/lib/dnd-it";
 
 const dropAnimation: DropAnimation = {
   duration: 220,
@@ -89,6 +91,7 @@ export function SalesBoard({ spaceId, title }: { spaceId: string; title: string 
   const moveDeal = useSalesStore((s) => s.moveDeal);
   const moveMany = useSalesStore((s) => s.moveMany);
   const reorderInStage = useSalesStore((s) => s.reorderInStage);
+  const setStages = useSalesStore((s) => s.setStages);
   const pipelineTotal = selectPipelineTotal(pipeline);
 
   const [editor, setEditor] = useState<DealEditorState | null>(null);
@@ -98,16 +101,19 @@ export function SalesBoard({ spaceId, title }: { spaceId: string; title: string 
   const [freshId, setFreshId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const draggedRef = useRef(false);
+  const dragStartStages = useRef<PipelineData["stages"] | null>(null);
   const selection = useSelection();
   const createCta = useCreateFlash();
-  const pendingCreate = useUiStore((s) => s.pendingCreate);
-  const pendingSeq = useUiStore((s) => s.pendingSeq);
   useQuietKeys({ onNew: () => openCreate("lead") });
-  useEffect(() => {
-    if (useUiStore.getState().consumeCreate("deal")) {
-      openCreate("lead");
-    }
-  }, [pendingCreate, pendingSeq]);
+  usePaletteRequests({
+    kind: "deal",
+    spaceId,
+    onCreate: () => openCreate("lead"),
+    onOpen: (dealId) => {
+      setQuery("");
+      openEdit(dealId);
+    },
+  });
 
   const sensors = useSensors(
     useSensor(MouseSensor, { activationConstraint: { distance: 8 } }),
@@ -134,8 +140,15 @@ export function SalesBoard({ spaceId, title }: { spaceId: string; title: string 
   const activeDeal = activeId ? deals[activeId] : undefined;
   const pendingDeal = pendingDelete ? deals[pendingDelete] : undefined;
 
+  function restoreDragStart() {
+    if (dragStartStages.current) setStages(spaceId, dragStartStages.current);
+    dragStartStages.current = null;
+  }
+
   function handleDragStart(event: DragStartEvent) {
     draggedRef.current = true;
+    // Stage changes happen live during the drag; a cancelled drag undoes them.
+    dragStartStages.current = getPipelineData(spaceId).stages;
     setActiveId(String(event.active.id));
     document.body.style.cursor = "grabbing";
   }
@@ -159,7 +172,11 @@ export function SalesBoard({ spaceId, title }: { spaceId: string; title: string 
     window.setTimeout(() => {
       draggedRef.current = false;
     }, 0);
-    if (!over) return;
+    if (!over) {
+      restoreDragStart();
+      return;
+    }
+    dragStartStages.current = null;
     const activeDealId = String(active.id);
     const overId = String(over.id);
     const snapshot = getPipelineData(spaceId).stages;
@@ -173,6 +190,7 @@ export function SalesBoard({ spaceId, title }: { spaceId: string; title: string 
 
   function handleDragCancel() {
     document.body.style.cursor = "";
+    restoreDragStart();
     setActiveId(null);
     window.setTimeout(() => {
       draggedRef.current = false;
@@ -276,6 +294,15 @@ export function SalesBoard({ spaceId, title }: { spaceId: string; title: string 
 
         <DndContext
           id={`sales-${spaceId}`}
+          accessibility={dndAccessibility({
+            noun: "offerta",
+            group: "fase",
+            groups: "fasi",
+            where: (id) => {
+              const stage = isStageId(id) ? id : findStageOf(getPipelineData(spaceId).stages, id);
+              return stage ? STAGE_META[stage].title : null;
+            },
+          })}
           sensors={sensors}
           collisionDetection={collisionDetection}
           onDragStart={handleDragStart}
@@ -355,7 +382,7 @@ export function SalesBoard({ spaceId, title }: { spaceId: string; title: string 
             </AlertDialogTitle>
             <AlertDialogDescription>
               {pendingBulk
-                ? `${selection.selected.size} offerte verranno rimosse. Non si può annullare.`
+                ? `${selection.selected.size === 1 ? "1 offerta verrà rimossa" : `${selection.selected.size} offerte verranno rimosse`}. Non si può annullare.`
                 : pendingDeal
                   ? `“${pendingDeal.title}” verrà rimossa. Non si può annullare.`
                   : "L’offerta verrà rimossa."}

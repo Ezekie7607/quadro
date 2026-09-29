@@ -34,7 +34,7 @@
   --radius-md: 10px;
   --radius-lg: 16px;
   --radius-xl: 22px;
-  --radius-2xl: 20px;
+  --radius-2xl: 22px;
   --radius-3xl: 24px;
   --radius: 10px;
 
@@ -146,6 +146,34 @@ html[data-motion="reduce"] .btn-sheen::after,
 html[data-motion="reduce"] .blink-dot,
 html[data-motion="reduce"] .stat-bar-fill {
   animation: none;
+}
+
+/* "Calmo" gets the same resets the system preference gets below. */
+html[data-motion="reduce"] .kanban-card,
+html[data-motion="reduce"] .kanban-card-overlay-inner,
+html[data-motion="reduce"] .invert-word,
+html[data-motion="reduce"] .nav-invert,
+html[data-motion="reduce"] .link-underline::after {
+  transition: none;
+  rotate: none;
+  scale: none;
+}
+
+html[data-motion="reduce"] .kanban-card:hover {
+  transform: none;
+}
+
+html[data-motion="reduce"] .split-line,
+html[data-motion="reduce"] .rise-in,
+html[data-motion="reduce"] .route-enter,
+html[data-motion="reduce"] .board-cols > * {
+  opacity: 1;
+  transform: none;
+}
+
+html[data-motion="reduce"] .kicker {
+  opacity: 1;
+  letter-spacing: 0.18em;
 }
 
 .kanban-card.is-dragging {
