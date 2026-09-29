@@ -76,6 +76,13 @@ Hint desktop: “N nuova · ⌘K cerca · ⌘B menu”. Su telefono non mostrare
 
 **In arrivo:** stack di scadenze. Compatto; si apre in lista al passaggio o al tap. Chip data: rosso se scaduta, grigio chiaro se oggi, normale se in arrivo. Orizzonte da impostazioni (7, 14 o 30 giorni). Tap apre lo spazio.
 
+**Grafici (2 card, sotto le scadenze):**
+
+- **Prossimi N giorni:** una colonna per giorno, da oggi all’orizzonte; altezza = schede aperte con quella data. Le scadute stanno in una colonna rossa davanti, “Scadute”. Weekend su fondo tenue. Passa sopra, tocca, trascina o usa le frecce: sotto compaiono il giorno e le sue schede (max 3, poi “+N”); tap su una scheda la apre. Senza scelta mostra la prossima scadenza.
+- **Clienti:** euro per cliente su tutte le pipeline, stessa scala per tutti. Vinto pieno, aperto a righe, stesso colore: niente secondo accento. Nomi uguali a prescindere da maiuscole e spazi; offerte senza cliente sotto “Senza cliente”. Al massimo 5 righe: oltre, i più piccoli finiscono in “Altri N clienti”.
+
+Con “Calmo” le barre sono già ferme.
+
 ## 5. Spazi
 
 Tre tipi. Si creano, rinominano, eliminano. Titolo duplicato diventa “Bacheca 2”, “Note 3”, ecc.

@@ -199,6 +199,17 @@ html[data-motion="reduce"] .kicker {
   }
 }
 
+/* Euro still open on the client chart: the same ink, striped, so it reads
+   apart from the solid "won" without bringing in a second colour. */
+.chart-hatch {
+  background-color: var(--color-accent);
+  background-image: repeating-linear-gradient(
+    135deg,
+    var(--color-foreground) 0 1.5px,
+    transparent 1.5px 5px
+  );
+}
+
 .kanban-card-overlay {
   box-shadow: var(--shadow-lift);
   cursor: grabbing;

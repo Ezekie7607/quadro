@@ -4,6 +4,8 @@ import { ChartColumn, CircleDollarSign, Columns3, Plus, StickyNote } from "lucid
 import { toast } from "sonner";
 import { DueStack } from "@/components/due-stack";
 import { QuadroMark } from "@/components/brand/logo";
+import { ClientChart } from "@/components/home/client-chart";
+import { DueChart } from "@/components/home/due-chart";
 import { CreateAction, useCreateFlash } from "@/components/motion/submit-action";
 import { Tooltip } from "@/components/motion/tooltip";
 import { SearchField } from "@/components/search-field";
@@ -19,6 +21,7 @@ import {
   type Card,
   type PriorityId,
 } from "@/lib/board-store";
+import { clientTotals } from "@/lib/chart-data";
 import { addDays, formatTodayLine, toIsoDate, todayIso } from "@/lib/dates";
 import { useNotesStore, type Note } from "@/lib/notes-store";
 import {
@@ -76,6 +79,7 @@ export function HomeDashboard() {
   const allNotes: Note[] = Object.values(notebooks).flat();
   const stageCounts = { lead: 0, offer: 0, won: 0 };
   const stageValues = { lead: 0, offer: 0, won: 0 };
+  const chartDeals: { client: string; value: number; won: boolean }[] = [];
   for (const pipeline of Object.values(pipelines)) {
     for (const id of STAGE_IDS) {
       stageCounts[id] += pipeline.stages[id].length;
@@ -83,8 +87,13 @@ export function HomeDashboard() {
         (sum, dealId) => sum + (pipeline.deals[dealId]?.value ?? 0),
         0,
       );
+      for (const dealId of pipeline.stages[id]) {
+        const deal = pipeline.deals[dealId];
+        if (deal) chartDeals.push({ client: deal.client, value: deal.value, won: id === "won" });
+      }
     }
   }
+  const clientRows = clientTotals(chartDeals);
   const salesTotal = stageCounts.lead + stageCounts.offer + stageCounts.won;
   const pipelineTotal = selectAllPipelineTotal(pipelines);
   const winPct = salesTotal ? Math.round((stageCounts.won / salesTotal) * 100) : 0;
@@ -134,6 +143,12 @@ export function HomeDashboard() {
   upcoming.sort((a, b) => a.dueDate.localeCompare(b.dueDate) || a.title.localeCompare(b.title));
   const shownUpcoming = upcoming.slice(0, 6);
   const overdueCount = upcoming.filter((item) => item.dueDate < today).length;
+
+  function openDueCard(item: UpcomingItem) {
+    // §4: a tap opens the space, straight on the card that is due.
+    useUiStore.getState().requestOpen({ kind: "card", spaceId: item.spaceId, id: item.id });
+    void navigate({ to: "/spazio/$spaceId", params: { spaceId: item.spaceId } });
+  }
 
   return (
     <div className="h-full min-h-0 overflow-y-auto px-3 pt-3 pb-8 sm:px-5 sm:pt-4">
@@ -207,13 +222,20 @@ export function HomeDashboard() {
           collapsedLabel={overdueCount > 0 ? `${overdueCount} in ritardo` : "In arrivo"}
           expandedLabel="Calendario"
           onViewAll={() => void navigate({ to: "/calendario" })}
-          onItemSelect={(item) => {
-            // §4: a tap opens the space — straight on the card that is due.
-            useUiStore.getState().requestOpen({ kind: "card", spaceId: item.spaceId, id: item.id });
-            void navigate({ to: "/spazio/$spaceId", params: { spaceId: item.spaceId } });
-          }}
+          onItemSelect={openDueCard}
         />
       </section>
+
+      <div className="mt-4 grid gap-3 lg:grid-cols-5">
+        <DueChart
+          items={upcoming}
+          today={today}
+          horizonDays={dueHorizonDays}
+          onOpen={openDueCard}
+          className="lg:col-span-3"
+        />
+        <ClientChart rows={clientRows} space={firstSales} className="lg:col-span-2" />
+      </div>
 
       <section aria-label="Spazi" className="mt-4">
         <div className="mb-2 flex items-center justify-between">
