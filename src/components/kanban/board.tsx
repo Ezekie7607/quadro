@@ -17,7 +17,15 @@ import {
   defaultDropAnimationSideEffects,
 } from "@dnd-kit/core";
 import { sortableKeyboardCoordinates } from "@dnd-kit/sortable";
-import { Calendar, CalendarPlus, CalendarRange, CircleDot, Columns3, FileText, Flag } from "lucide-react";
+import {
+  Calendar,
+  CalendarPlus,
+  CalendarRange,
+  CircleDot,
+  Columns3,
+  FileText,
+  Flag,
+} from "lucide-react";
 import { LayoutGroup, motion } from "motion/react";
 import { toast } from "sonner";
 import { useCreateFlash } from "@/components/motion/submit-action";
@@ -47,6 +55,7 @@ import {
   getBoardData,
   isColumnId,
   useBoardStore,
+  type BoardData,
   type Card,
   type ColumnId,
   type PriorityId,
@@ -57,7 +66,8 @@ import { SPRING_LAYOUT } from "@/lib/ease";
 import { useSettingsStore } from "@/lib/settings-store";
 import { useSelection } from "@/lib/selection";
 import { useQuietKeys } from "@/lib/use-quiet-keys";
-import { useUiStore } from "@/lib/ui-store";
+import { usePaletteRequests } from "@/lib/use-palette-requests";
+import { dndAccessibility } from "@/lib/dnd-it";
 import { cn, pluralizeSchede } from "@/lib/utils";
 
 const BOARD_CREATE: BloomMenuItem[] = [
@@ -121,6 +131,7 @@ export function Board({ spaceId, title }: { spaceId: string; title: string }) {
   const moveCard = useBoardStore((s) => s.moveCard);
   const moveMany = useBoardStore((s) => s.moveMany);
   const reorderInColumn = useBoardStore((s) => s.reorderInColumn);
+  const setColumns = useBoardStore((s) => s.setColumns);
 
   const [editor, setEditor] = useState<CardEditorState | null>(null);
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
@@ -129,9 +140,8 @@ export function Board({ spaceId, title }: { spaceId: string; title: string }) {
   const [freshId, setFreshId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<BoardFilter>("all");
-  const pendingCreate = useUiStore((s) => s.pendingCreate);
-  const pendingSeq = useUiStore((s) => s.pendingSeq);
   const draggedRef = useRef(false);
+  const dragStartColumns = useRef<BoardData["columns"] | null>(null);
   const selection = useSelection();
   const createCta = useCreateFlash();
   const defaultColumn = useSettingsStore((s) => s.defaultColumn);
@@ -139,12 +149,17 @@ export function Board({ spaceId, title }: { spaceId: string; title: string }) {
   const autoSelectDue = useSettingsStore((s) => s.autoSelectDue);
   const confirmDeletePref = useSettingsStore((s) => s.confirmDelete);
   useQuietKeys({ onNew: () => openCreate(defaultColumn) });
-
-  useEffect(() => {
-    if (useUiStore.getState().consumeCreate("card")) {
-      openCreate(defaultColumn);
-    }
-  }, [pendingCreate, pendingSeq, defaultColumn]);
+  usePaletteRequests({
+    kind: "card",
+    spaceId,
+    onCreate: () => openCreate(defaultColumn),
+    onOpen: (cardId) => {
+      // A filter or a search could be hiding the card the palette found.
+      setQuery("");
+      setFilter("all");
+      openEdit(cardId);
+    },
+  });
 
   const dueNow = useMemo(() => {
     const today = todayIso();
@@ -169,11 +184,12 @@ export function Board({ spaceId, title }: { spaceId: string; title: string }) {
   useEffect(() => {
     primedBoard.current = null;
   }, [spaceId]);
+  // Once per opening of the board: a card that turns due later must not take
+  // over a selection the user made by hand.
   useEffect(() => {
-    if (!autoSelectDue) return;
     if (primedBoard.current === spaceId) return;
-    if (dueNow.length === 0) return;
     primedBoard.current = spaceId;
+    if (!autoSelectDue || dueNow.length === 0) return;
     selection.selectMany(dueNow.map((item) => item.id));
   }, [spaceId, dueNow, selection, autoSelectDue]);
 
@@ -208,8 +224,16 @@ export function Board({ spaceId, title }: { spaceId: string; title: string }) {
   const activeCard = activeId ? cards[activeId] : undefined;
   const pendingCard = pendingDelete ? cards[pendingDelete] : undefined;
 
+  function restoreDragStart() {
+    if (dragStartColumns.current) setColumns(spaceId, dragStartColumns.current);
+    dragStartColumns.current = null;
+  }
+
   function handleDragStart(event: DragStartEvent) {
     draggedRef.current = true;
+    // Cross-column moves happen live during the drag; keep the starting layout
+    // so a cancelled drag (Esc, or a drop outside every column) can undo them.
+    dragStartColumns.current = getBoardData(spaceId).columns;
     setActiveId(String(event.active.id));
     document.body.style.cursor = "grabbing";
   }
@@ -221,9 +245,7 @@ export function Board({ spaceId, title }: { spaceId: string; title: string }) {
     const overId = String(over.id);
     const snapshot = getBoardData(spaceId).columns;
     const from = findColumnOf(snapshot, activeCardId);
-    const to: ColumnId | null = isColumnId(overId)
-      ? overId
-      : findColumnOf(snapshot, overId);
+    const to: ColumnId | null = isColumnId(overId) ? overId : findColumnOf(snapshot, overId);
     if (!from || !to || from === to) return;
     moveCard(spaceId, activeCardId, to, isColumnId(overId) ? null : overId);
   }
@@ -235,7 +257,11 @@ export function Board({ spaceId, title }: { spaceId: string; title: string }) {
     window.setTimeout(() => {
       draggedRef.current = false;
     }, 0);
-    if (!over) return;
+    if (!over) {
+      restoreDragStart();
+      return;
+    }
+    dragStartColumns.current = null;
     const activeCardId = String(active.id);
     const overId = String(over.id);
     const snapshot = getBoardData(spaceId).columns;
@@ -249,6 +275,7 @@ export function Board({ spaceId, title }: { spaceId: string; title: string }) {
 
   function handleDragCancel() {
     document.body.style.cursor = "";
+    restoreDragStart();
     setActiveId(null);
     window.setTimeout(() => {
       draggedRef.current = false;
@@ -269,19 +296,19 @@ export function Board({ spaceId, title }: { spaceId: string; title: string }) {
 
   function handleBloomSelect(item: BloomMenuItem) {
     if (item.id === "oggi") {
-      openCreate("todo", { dueDate: todayIso() });
+      openCreate(defaultColumn, { dueDate: todayIso() });
       return;
     }
     if (item.id === "domani") {
-      openCreate("todo", { dueDate: addDaysIso(1) });
+      openCreate(defaultColumn, { dueDate: addDaysIso(1) });
       return;
     }
     if (item.id === "settimana") {
-      openCreate("todo", { dueDate: addDaysIso(7) });
+      openCreate(defaultColumn, { dueDate: addDaysIso(7) });
       return;
     }
     if (item.id === "alta") {
-      openCreate("todo", { priority: "high" });
+      openCreate(defaultColumn, { priority: "high" });
       return;
     }
     if (item.id === "doing") {
@@ -387,47 +414,56 @@ export function Board({ spaceId, title }: { spaceId: string; title: string }) {
   return (
     <div className="flex h-full min-h-0 flex-col px-3 pt-3 sm:px-5 sm:pt-4">
       <header className="relative z-40 mb-3 flex shrink-0 flex-col gap-3 sm:mb-4">
-          <div className="min-w-0">
-            <p className="kicker hidden items-center gap-2 text-xs text-muted-foreground md:flex">
-              <Columns3 className="size-3.5" />
-              {title}
-            </p>
-            <SplitHeadline
-              lines={[...SPACE_META.board.headlines]}
-              className="mt-2 text-3xl sm:text-4xl"
-            />
-          </div>
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-            <SearchField
-              value={query}
-              onChange={setQuery}
-              label="Cerca schede"
-              placeholder="Cerca schede"
-            />
-            <p className="hidden text-sm text-muted-foreground sm:block">
-              {pluralizeSchede(total)}
-            </p>
-            <BloomMenu
-              items={BOARD_CREATE}
-              triggerLabel={createCta.value === "done" ? "Aggiunta" : "Nuova"}
-              menuTitle="Nuova scheda"
-              onSelect={handleBloomSelect}
-            />
-          </div>
-          <FilterStrip value={filter} onChange={setFilter} />
-          {dueNow.length > 0 ? (
-            <DueStack
-              items={dueNow}
-              collapsedLabel={dueNow.some((item) => item.dueDate < todayIso()) ? "In ritardo" : "Oggi"}
-              expandedLabel="Selezionate"
-              onViewAll={() => selection.selectMany(dueNow.map((item) => item.id))}
-            />
-          ) : null}
-        </header>
+        <div className="min-w-0">
+          <p className="kicker hidden items-center gap-2 text-xs text-muted-foreground md:flex">
+            <Columns3 className="size-3.5" />
+            {title}
+          </p>
+          <SplitHeadline
+            lines={[...SPACE_META.board.headlines]}
+            className="mt-2 text-3xl sm:text-4xl"
+          />
+        </div>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <SearchField
+            value={query}
+            onChange={setQuery}
+            label="Cerca schede"
+            placeholder="Cerca schede"
+          />
+          <p className="hidden text-sm text-muted-foreground sm:block">{pluralizeSchede(total)}</p>
+          <BloomMenu
+            items={BOARD_CREATE}
+            triggerLabel={createCta.value === "done" ? "Aggiunta" : "Nuova"}
+            menuTitle="Nuova scheda"
+            onSelect={handleBloomSelect}
+          />
+        </div>
+        <FilterStrip value={filter} onChange={setFilter} />
+        {dueNow.length > 0 ? (
+          <DueStack
+            items={dueNow}
+            collapsedLabel={
+              dueNow.some((item) => item.dueDate < todayIso()) ? "In ritardo" : "Oggi"
+            }
+            expandedLabel="Selezionate"
+            onViewAll={() => selection.selectMany(dueNow.map((item) => item.id))}
+          />
+        ) : null}
+      </header>
 
-        <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+      <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
         <DndContext
           id={`board-${spaceId}`}
+          accessibility={dndAccessibility({
+            noun: "scheda",
+            group: "colonna",
+            groups: "colonne",
+            where: (id) => {
+              const column = isColumnId(id) ? id : findColumnOf(getBoardData(spaceId).columns, id);
+              return column ? COLUMN_META[column].title : null;
+            },
+          })}
           sensors={sensors}
           collisionDetection={collisionDetection}
           onDragStart={handleDragStart}
@@ -507,7 +543,7 @@ export function Board({ spaceId, title }: { spaceId: string; title: string }) {
             </AlertDialogTitle>
             <AlertDialogDescription>
               {pendingBulk
-                ? `${selection.selected.size} schede verranno rimosse. Non si può annullare.`
+                ? `${selection.selected.size === 1 ? "1 scheda verrà rimossa" : `${selection.selected.size} schede verranno rimosse`}. Non si può annullare.`
                 : pendingCard
                   ? `“${pendingCard.title}” verrà rimossa dalla bacheca. Non si può annullare.`
                   : "La scheda verrà rimossa dalla bacheca."}
@@ -532,7 +568,11 @@ function FilterStrip({
 }) {
   return (
     <LayoutGroup id="board-filter">
-      <div className="flex w-fit flex-wrap rounded-full bg-muted p-1" role="tablist" aria-label="Filtri">
+      <div
+        className="flex w-fit flex-wrap rounded-full bg-muted p-1"
+        role="tablist"
+        aria-label="Filtri"
+      >
         {BOARD_FILTERS.map((item) => {
           const active = item.id === value;
           return (

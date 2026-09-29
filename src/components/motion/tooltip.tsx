@@ -4,6 +4,7 @@ import { AnimatePresence } from "motion/react";
 import {
   cloneElement,
   isValidElement,
+  type FocusEvent,
   type PointerEvent,
   type ReactElement,
   type ReactNode,
@@ -227,7 +228,11 @@ export function Tooltip({
           onPointerLeave={(event: PointerEvent) => {
             if (hover.leave(event)) hide();
           }}
-          onFocus={show}
+          // Keyboard focus only: focus put back by code (a closed menu returning
+          // it to its trigger) or landed by a tap would pin the label open.
+          onFocus={(event: FocusEvent) => {
+            if ((event.target as HTMLElement).matches?.(":focus-visible")) show();
+          }}
           onBlur={hide}
           onPointerDown={(event: PointerEvent) => tap.start(event, open)}
           // A gesture the platform took away sends no click, and a key press

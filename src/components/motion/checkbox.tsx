@@ -1,6 +1,7 @@
 "use client";
 
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { AnimatePresence, motion } from "motion/react";
+import { useQuietMotion } from "@/lib/use-quiet-motion";
 import { useId, type MouseEvent, type PointerEvent } from "react";
 import { EASE_OUT, SPRING_PRESS } from "@/lib/ease";
 import { cn } from "@/lib/utils";
@@ -33,7 +34,7 @@ export function Checkbox({
 }: CheckboxProps) {
   const autoId = useId();
   const id = idProp ?? autoId;
-  const reduce = useReducedMotion();
+  const reduce = useQuietMotion();
   const showMark = checked || indeterminate;
   const path = indeterminate ? INDETERMINATE_PATH : CHECK_PATH;
 

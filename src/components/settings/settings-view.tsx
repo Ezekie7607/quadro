@@ -29,9 +29,23 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { BOARD_KIT_META, BOARD_KITS, type BoardKit } from "@/lib/board-kits";
-import { COLUMN_IDS, COLUMN_META, PRIORITY_IDS, PRIORITY_META, type ColumnId, type PriorityId } from "@/lib/board-store";
+import {
+  COLUMN_IDS,
+  COLUMN_META,
+  PRIORITY_IDS,
+  PRIORITY_META,
+  type ColumnId,
+  type PriorityId,
+} from "@/lib/board-store";
 import { SPRING_LAYOUT } from "@/lib/ease";
-import { exportQuadro, importQuadro, resetQuadro } from "@/lib/quadro-backup";
+import {
+  BackupError,
+  applyBackup,
+  exportQuadro,
+  readBackup,
+  resetQuadro,
+  type CheckedBackup,
+} from "@/lib/quadro-backup";
 import {
   studioInitials,
   useSettingsStore,
@@ -41,7 +55,64 @@ import {
   type MotionPref,
   type WeekStart,
 } from "@/lib/settings-store";
-import { cn } from "@/lib/utils";
+import { cn, pluralizeNote, pluralizeOfferte, pluralizeSchede } from "@/lib/utils";
+import { useQuietKeys } from "@/lib/use-quiet-keys";
+import { useCoarsePointer } from "@/lib/hooks/use-coarse-pointer";
+
+/**
+ * The name as typed, spaces included: the store trims, so feeding it back into
+ * the field on every key ate the space in "Studio Rossi" and snapped an empty
+ * field back to "Studio". The clean value still reaches the store at once;
+ * the field shows it again once focus leaves.
+ */
+function StudioNameField({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const [draft, setDraft] = useState(value);
+  const [editing, setEditing] = useState(false);
+
+  useEffect(() => {
+    if (!editing) setDraft(value);
+  }, [editing, value]);
+
+  return (
+    <Input
+      id="studio-name"
+      value={draft}
+      maxLength={24}
+      autoComplete="off"
+      className="mt-1.5"
+      onFocus={() => setEditing(true)}
+      onBlur={() => setEditing(false)}
+      onChange={(event) => {
+        setDraft(event.target.value);
+        onChange(event.target.value);
+      }}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") event.currentTarget.blur();
+      }}
+    />
+  );
+}
+
+function describeBackup(backup: CheckedBackup) {
+  const { spaces, cards, deals, notes } = backup.counts;
+  const parts = [
+    spaces === 1 ? "1 spazio" : `${spaces} spazi`,
+    pluralizeSchede(cards),
+    pluralizeOfferte(deals),
+    pluralizeNote(notes),
+  ];
+  const day = backup.exportedAt ? new Date(backup.exportedAt) : null;
+  const list = parts.join(", ");
+  if (!day || Number.isNaN(day.getTime())) return `Nel file: ${list}.`;
+  const date = day.toLocaleDateString("it-IT", { day: "numeric", month: "long", year: "numeric" });
+  return `Copia del ${date}: ${list}.`;
+}
 
 const SECTIONS = [
   { id: "studio", label: "Studio", icon: UserRound },
@@ -56,7 +127,19 @@ export function SettingsView() {
   const [section, setSection] = useState<(typeof SECTIONS)[number]["id"]>("studio");
   const [exportPhase, setExportPhase] = useState<"idle" | "done">("idle");
   const [resetOpen, setResetOpen] = useState(false);
+  const [pendingImport, setPendingImport] = useState<CheckedBackup | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  // No search here: "/" opens the palette.
+  useQuietKeys();
+  const coarsePointer = useCoarsePointer();
+
+  function reportImportError(error: unknown) {
+    const message = error instanceof BackupError ? error.message : "File non valido.";
+    // Inline as well as a toast: with "Avvisi" off there is no toaster at all.
+    setImportError(message);
+    toast.error(message);
+  }
 
   useEffect(() => {
     if (exportPhase !== "done") return;
@@ -127,13 +210,9 @@ export function SettingsView() {
             </div>
             <div className="min-w-0 flex-1">
               <Label htmlFor="studio-name">Nome</Label>
-              <Input
-                id="studio-name"
+              <StudioNameField
                 value={settings.studioName}
-                maxLength={24}
-                autoComplete="off"
-                className="mt-1.5"
-                onChange={(event) => settings.patch({ studioName: event.target.value })}
+                onChange={(studioName) => settings.patch({ studioName })}
               />
             </div>
           </div>
@@ -167,9 +246,7 @@ export function SettingsView() {
           <Row label="Orizzonte" hint="Quanti giorni guarda la home.">
             <Segmented
               value={String(settings.dueHorizonDays)}
-              onChange={(raw) =>
-                settings.patch({ dueHorizonDays: Number(raw) as HorizonDays })
-              }
+              onChange={(raw) => settings.patch({ dueHorizonDays: Number(raw) as HorizonDays })}
               items={[
                 { id: "7", label: "7 g" },
                 { id: "14", label: "14 g" },
@@ -235,7 +312,11 @@ export function SettingsView() {
           />
           <ToggleRow
             label="Scorciatoie"
-            hint="N nuova, / cerca, ⌘K tutto, ⌘B menu, ⌘, qui."
+            hint={
+              coarsePointer
+                ? "Con una tastiera collegata: N nuova, / cerca."
+                : "N nuova, / cerca, ⌘K tutto, ⌘B menu, ⌘, qui."
+            }
             checked={settings.shortcuts}
             onCheckedChange={(shortcuts) => settings.patch({ shortcuts })}
           />
@@ -275,9 +356,9 @@ export function SettingsView() {
                 },
                 {
                   id: "done",
-                  label: "Scaricato",
+                  label: "Copia scaricata",
                   icon: <Check className="h-4 w-4" />,
-                  ariaLabel: "Scaricato",
+                  ariaLabel: "Copia scaricata",
                 },
               ]}
               className="h-11 font-display text-xs font-medium tracking-[0.14em] uppercase"
@@ -293,15 +374,14 @@ export function SettingsView() {
             <input
               ref={fileRef}
               type="file"
-              accept="application/json"
+              accept="application/json,.json"
               className="hidden"
               onChange={(event) => {
                 const file = event.target.files?.[0];
                 event.target.value = "";
                 if (!file) return;
-                void importQuadro(file).catch(() => {
-                  toast.error("File non valido");
-                });
+                setImportError(null);
+                void readBackup(file).then(setPendingImport, reportImportError);
               }}
             />
             <button
@@ -311,35 +391,58 @@ export function SettingsView() {
             >
               Azzera
             </button>
-            <a
-              href="/quadro-sorgente.zip"
-              download="quadro-sorgente.zip"
-              className="inline-flex h-11 items-center gap-2 rounded-full bg-foreground px-4 font-display text-xs font-medium tracking-[0.14em] text-background uppercase"
-            >
-              <Download className="size-4" />
-              Codice
-            </a>
-            <a
-              href="/QUADRO.md"
-              download="QUADRO.md"
-              className="inline-flex h-11 items-center rounded-full border border-border bg-card px-4 font-display text-xs font-medium tracking-[0.14em] uppercase hover:bg-accent"
-            >
-              Brief
-            </a>
           </div>
+          {importError ? (
+            <p role="alert" className="mt-3 text-xs font-medium text-destructive">
+              {importError}
+            </p>
+          ) : null}
           <p className="mt-3 flex items-center gap-1.5 text-xs text-muted-foreground">
             <Keyboard className="size-3.5" />
-            Nessun account. Il file è la tua copia.
+            Nessun account. Il file è la tua copia: contiene tutto, in chiaro.
           </p>
         </SettingsCard>
       </div>
+
+      <AlertDialog
+        open={pendingImport !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingImport(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Sostituire tutto con questa copia?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingImport ? describeBackup(pendingImport) : null} Quello che c’è adesso su questo
+              browser viene sostituito. Non si può annullare.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Annulla</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (!pendingImport) return;
+                try {
+                  applyBackup(pendingImport);
+                } catch (error) {
+                  reportImportError(error);
+                }
+              }}
+            >
+              Importa
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={resetOpen} onOpenChange={setResetOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Azzerare Quadro?</AlertDialogTitle>
             <AlertDialogDescription>
-              Spazi, schede, note, vendite e queste impostazioni tornano al punto di partenza. Non si può annullare.
+              Spazi, schede, note, vendite e queste impostazioni tornano al punto di partenza. Non
+              si può annullare.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -364,14 +467,9 @@ function SettingsCard({
   children: ReactNode;
 }) {
   return (
-    <section
-      id={`set-${id}`}
-      className="scroll-mt-4 rounded-3xl bg-surface p-3 sm:p-4"
-    >
+    <section id={`set-${id}`} className="scroll-mt-4 rounded-3xl bg-surface p-3 sm:p-4">
       <header className="mb-3">
-        <h2 className="font-display text-sm font-medium tracking-[0.08em] uppercase">
-          {title}
-        </h2>
+        <h2 className="font-display text-sm font-medium tracking-[0.08em] uppercase">{title}</h2>
         <p className="mt-1 text-xs text-muted-foreground">{hint}</p>
       </header>
       <div className="grid gap-4 rounded-2xl bg-card p-3 sm:p-4">{children}</div>
@@ -379,15 +477,7 @@ function SettingsCard({
   );
 }
 
-function Row({
-  label,
-  hint,
-  children,
-}: {
-  label: string;
-  hint: string;
-  children: ReactNode;
-}) {
+function Row({ label, hint, children }: { label: string; hint: string; children: ReactNode }) {
   return (
     <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
       <div className="min-w-0">

@@ -1,11 +1,6 @@
-import { createFileRoute, redirect } from "@tanstack/react-router";
-import { DEFAULT_NOTES_ID } from "@/lib/spaces-store";
+import { createFileRoute } from "@tanstack/react-router";
+import { LegacySpaceRedirect } from "@/components/legacy-redirect";
 
 export const Route = createFileRoute("/note")({
-  beforeLoad: () => {
-    throw redirect({
-      to: "/spazio/$spaceId",
-      params: { spaceId: DEFAULT_NOTES_ID },
-    });
-  },
+  component: () => <LegacySpaceRedirect type="notes" />,
 });

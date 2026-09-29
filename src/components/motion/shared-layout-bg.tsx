@@ -4,9 +4,9 @@ import {
   AnimatePresence,
   type HTMLMotionProps,
   motion,
-  useReducedMotion,
   type Variants,
 } from "motion/react";
+import { useQuietMotion } from "@/lib/use-quiet-motion";
 import {
   Children,
   cloneElement,
@@ -65,7 +65,7 @@ export const SharedLayoutBg = forwardRef<HTMLElement, SharedLayoutBgProps>(
   ) {
   const [activeId, setActiveId] = useState<string | null>(null);
   const uid = useId();
-  const reduce = useReducedMotion();
+  const reduce = useQuietMotion();
 
     const renderedChildren = Children.toArray(children)
       .filter(isValidElement)

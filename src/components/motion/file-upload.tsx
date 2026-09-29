@@ -16,7 +16,8 @@ import {
   UploadCloud,
   X,
 } from "lucide-react";
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { AnimatePresence, motion } from "motion/react";
+import { useQuietMotion } from "@/lib/use-quiet-motion";
 import { useCallback, useId, useRef, useState } from "react";
 import { EASE_OUT } from "@/lib/ease";
 import { cn } from "@/lib/utils";
@@ -117,19 +118,17 @@ function clampProgress(value: number | undefined, status: FileUploadStatus) {
   return Math.max(0, Math.min(100, value));
 }
 
+const SIZE_FORMAT = new Intl.NumberFormat("it-IT", { maximumFractionDigits: 1 });
+
+/** Decimal units with an Italian comma: 2 400 000 bytes reads "2,4 MB", as the brief writes it. */
 function formatBytes(bytes: number) {
   if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
 
   const units = ["B", "KB", "MB", "GB", "TB"];
-  const exponent = Math.min(
-    Math.floor(Math.log(bytes) / Math.log(1024)),
-    units.length - 1,
-  );
-  const value = bytes / 1024 ** exponent;
+  const exponent = Math.min(Math.floor(Math.log10(bytes) / 3), units.length - 1);
+  const value = bytes / 1000 ** exponent;
 
-  return `${value >= 10 || exponent === 0 ? value.toFixed(0) : value.toFixed(1)} ${
-    units[exponent]
-  }`;
+  return `${exponent === 0 ? Math.round(value) : SIZE_FORMAT.format(value)} ${units[exponent]}`;
 }
 
 function fileKind(item: FileUploadItem) {
@@ -264,7 +263,7 @@ function FileUploadRow({
   onRetry: (item: FileUploadItem) => void;
   classNames?: FileUploadClassNames;
 }) {
-  const reduce = useReducedMotion() ?? false;
+  const reduce = useQuietMotion();
   const status = item.status ?? "queued";
   const progress = clampProgress(item.progress, status);
   const progressRatio = progress / 100;
@@ -363,9 +362,7 @@ function FileUploadRow({
               <motion.div
                 className={cn(
                   "h-full rounded-full",
-                  status === "success"
-                    ? "bg-emerald-500"
-                    : "bg-foreground",
+                  "bg-foreground",
                 )}
                 style={{
                   transformOrigin: "left",
@@ -406,7 +403,7 @@ export function FileUpload({
   const inputId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
   const dragDepthRef = useRef(0);
-  const reduce = useReducedMotion() ?? false;
+  const reduce = useQuietMotion();
   const [items, setItems] = useControllableUpload({
     value,
     defaultValue,
@@ -564,7 +561,7 @@ export function FileUpload({
               centered ? "text-base" : "text-sm",
             )}
           >
-            {maxReached ? "Upload limit reached" : title}
+            {maxReached ? "Limite raggiunto" : title}
           </span>
           <span
             className={cn(
@@ -573,7 +570,7 @@ export function FileUpload({
             )}
           >
             {maxReached
-              ? `${items.length} of ${maxFiles} files added`
+              ? `${items.length} di ${maxFiles} file`
               : description}
           </span>
         </span>

@@ -1,11 +1,6 @@
-import { createFileRoute, redirect } from "@tanstack/react-router";
-import { DEFAULT_BOARD_ID } from "@/lib/spaces-store";
+import { createFileRoute } from "@tanstack/react-router";
+import { LegacySpaceRedirect } from "@/components/legacy-redirect";
 
 export const Route = createFileRoute("/bacheca")({
-  beforeLoad: () => {
-    throw redirect({
-      to: "/spazio/$spaceId",
-      params: { spaceId: DEFAULT_BOARD_ID },
-    });
-  },
+  component: () => <LegacySpaceRedirect type="board" />,
 });

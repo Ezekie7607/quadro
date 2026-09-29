@@ -21,6 +21,7 @@ import {
 } from "@/lib/dates";
 import { useSettingsStore } from "@/lib/settings-store";
 import { useSpacesStore } from "@/lib/spaces-store";
+import { useQuietKeys } from "@/lib/use-quiet-keys";
 import { cn } from "@/lib/utils";
 
 type CalView = "month" | "week" | "agenda";
@@ -60,6 +61,8 @@ export function CalendarView() {
   const [selected, setSelected] = useState(todayIso);
   const [view, setView] = useState<CalView>(readView);
   const today = todayIso();
+  // No search here: "/" opens the palette.
+  useQuietKeys();
 
   const events = useMemo(() => {
     const list: CalEvent[] = [];
@@ -117,10 +120,10 @@ export function CalendarView() {
       ? weekRangeLabel(cursor, weekStartsOn)
       : formatMonthYear(cursor);
   const now = new Date();
+  // Agenda pages by month like the grid, so "Qui" follows the same rule.
   const atToday =
-    view === "agenda" ||
     (view === "week" && weekDays(cursor, weekStartsOn).some((day) => toIsoDate(day) === today)) ||
-    (view === "month" &&
+    ((view === "month" || view === "agenda") &&
       cursor.getMonth() === now.getMonth() &&
       cursor.getFullYear() === now.getFullYear());
 

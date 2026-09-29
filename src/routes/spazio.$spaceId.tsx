@@ -33,11 +33,13 @@ function SpacePage() {
     );
   }
 
+  // Keyed per space: two spaces of the same type must not share selection,
+  // search, filters or an open dialog.
   if (space.type === "board") {
-    return <Board spaceId={space.id} title={space.title} />;
+    return <Board key={space.id} spaceId={space.id} title={space.title} />;
   }
   if (space.type === "sales") {
-    return <SalesBoard spaceId={space.id} title={space.title} />;
+    return <SalesBoard key={space.id} spaceId={space.id} title={space.title} />;
   }
-  return <NotesView spaceId={space.id} title={space.title} />;
+  return <NotesView key={space.id} spaceId={space.id} title={space.title} />;
 }

@@ -76,6 +76,13 @@ Hint desktop: “N nuova · ⌘K cerca · ⌘B menu”. Su telefono non mostrare
 
 **In arrivo:** stack di scadenze. Compatto; si apre in lista al passaggio o al tap. Chip data: rosso se scaduta, grigio chiaro se oggi, normale se in arrivo. Orizzonte da impostazioni (7, 14 o 30 giorni). Tap apre lo spazio.
 
+**Grafici (2 card, sotto le scadenze):**
+
+- **Prossimi N giorni:** una colonna per giorno, da oggi all’orizzonte; altezza = schede aperte con quella data. Le scadute stanno in una colonna rossa davanti, “Scadute”. Weekend su fondo tenue. Passa sopra, tocca, trascina o usa le frecce: sotto compaiono il giorno e le sue schede (max 3, poi “+N”); tap su una scheda la apre. Senza scelta mostra la prossima scadenza.
+- **Clienti:** euro per cliente su tutte le pipeline, stessa scala per tutti. Vinto pieno, aperto a righe, stesso colore: niente secondo accento. Nomi uguali a prescindere da maiuscole e spazi; offerte senza cliente sotto “Senza cliente”. Al massimo 5 righe: oltre, i più piccoli finiscono in “Altri N clienti”.
+
+Con “Calmo” le barre sono già ferme.
+
 ## 5. Spazi
 
 Tre tipi. Si creano, rinominano, eliminano. Titolo duplicato diventa “Bacheca 2”, “Note 3”, ecc.
@@ -226,7 +233,7 @@ Overlay. Campo in alto. Gruppi, in quest’ordine quando la query è vuota:
 
 Frecce + Invio. Esc chiude. Creare non apre il dialog subito nel palette: mette in coda un `pendingCreate` (`card` | `note` | `deal` | `space`) con un contatore, chiude il palette, la pagina giusta consuma la richiesta e apre il dialog. Stesso valore due volte di fila deve funzionare grazie al contatore.
 
-La cerca atterra sullo spazio. Non apre ancora la scheda singola: è un buco noto.
+Un risultato apre la voce trovata nel suo dialog: la scheda, l’offerta o la nota. Stessa coda del crea (`pendingOpen` con contatore), consumata dalla pagina dello spazio.
 
 ## 11. Impostazioni
 
@@ -252,7 +259,7 @@ Pillole di sezione che scrollano alla card: Studio, Schede, Date, Vista, Dati.
 | Vista | Avvisi | sì | I toast in basso, dopo un’azione |
 | Vista | Chiedi prima di eliminare | sì | Altrimenti la scheda sparisce subito |
 | Dati | Esporta | — | Scarica `quadro-YYYY-MM-DD.json`. Toast “Copia scaricata”. Avviso: è tutto, in chiaro |
-| Dati | Importa | — | Solo file `app: "quadro"`, `version: 1`. Poi reload |
+| Dati | Importa | — | Solo file `app: "quadro"`, `version: 1`, fino a 10 MB. Dialog con i conteggi, poi reload |
 | Dati | Azzera | — | Dialog, poi cancella le chiavi e reload |
 
 I valori fuori lista, in ingresso, vengono riportati al default. Il nome si taglia a 24 caratteri.
@@ -373,7 +380,7 @@ Export JSON:
 }
 ```
 
-Import: rifiuta se `app` o `version` non tornano. Non eseguire HTML. Non c’è ancora uno schema stretto né un tetto di peso: un file enorme può bloccare la pagina. È il buco di sicurezza vero. Il resto (XSS) non c’è perché i testi passano da React, non da `innerHTML`.
+Import: tetto di 10 MB prima di leggere il file. Rifiuta se `app` o `version` non tornano o se mancano gli spazi. Ogni valore passa dagli stessi normalizzatori del caricamento da localStorage: testi tagliati ai massimi, id doppi e chiavi `__proto__` scartati, ogni scheda in una sola colonna, impostazioni fuori lista riportate al default. Tiene solo i dati degli spazi presenti nel file. Chiede conferma con i conteggi, poi scrive tutte le chiavi o nessuna (se il browser rifiuta, rimette i valori di prima). Non eseguire HTML: i testi passano da React, non da `innerHTML`.
 
 ## 17. Ordine per rifarlo
 
@@ -392,14 +399,12 @@ Import: rifiuta se `app` o `version` non tornano. Non eseguire HTML. Non c’è 
 
 ## 18. Buchi da non rifare per sbaglio
 
-- ⌘K apre lo spazio, non la scheda.
 - “Chiedi prima di eliminare” è rispettato in bacheca; note e vendite hanno il loro dialog.
 - Cattura in home: sempre la prima bacheca, senza scelta.
 - Calendario cieco su offerte e note.
 - Allegati: solo metadati.
 - Niente undo.
 - Spazi non si riordinano.
-- Import senza schema né limite di dimensione.
 
 ## 19. Cosa non aggiungere
 

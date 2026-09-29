@@ -1,6 +1,15 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
+import { quadroStorage } from "@/lib/safe-storage";
 import { arrayMove } from "@dnd-kit/sortable";
+import {
+  claimIds,
+  cleanText,
+  cleanTimestamp,
+  isRecord,
+  isSafeId,
+  safeEntries,
+} from "@/lib/sanitize";
 import { createId } from "@/lib/utils";
 import { DEFAULT_SALES_ID } from "@/lib/spaces-store";
 import { useEffect, useState } from "react";
@@ -85,19 +94,11 @@ type SalesState = {
   ) => void;
   deleteDeal: (spaceId: string, id: string) => void;
   deleteMany: (spaceId: string, ids: string[]) => void;
-  moveDeal: (
-    spaceId: string,
-    activeId: string,
-    toStage: StageId,
-    overId: string | null,
-  ) => void;
+  moveDeal: (spaceId: string, activeId: string, toStage: StageId, overId: string | null) => void;
   moveMany: (spaceId: string, ids: string[], toStage: StageId) => void;
-  reorderInStage: (
-    spaceId: string,
-    stageId: StageId,
-    activeId: string,
-    overId: string,
-  ) => void;
+  reorderInStage: (spaceId: string, stageId: StageId, activeId: string, overId: string) => void;
+  /** Put back a stage layout taken earlier, e.g. when a drag is cancelled. */
+  setStages: (spaceId: string, stages: PipelineData["stages"]) => void;
 };
 
 export const EMPTY_PIPELINE: PipelineData = {
@@ -113,10 +114,7 @@ export function isStageId(value: string): value is StageId {
   return (STAGE_IDS as readonly string[]).includes(value);
 }
 
-export function findStageOf(
-  stages: Record<StageId, string[]>,
-  dealId: string,
-): StageId | null {
+export function findStageOf(stages: Record<StageId, string[]>, dealId: string): StageId | null {
   for (const id of STAGE_IDS) {
     if (stages[id].includes(dealId)) return id;
   }
@@ -131,15 +129,54 @@ function cloneStages(stages: Record<StageId, string[]>) {
   };
 }
 
-function getStorage() {
-  if (typeof window === "undefined") {
-    return {
-      getItem: () => null,
-      setItem: () => {},
-      removeItem: () => {},
+export const DEAL_TITLE_MAX = 120;
+export const DEAL_CLIENT_MAX = 80;
+export const DEAL_NOTES_MAX = 1000;
+
+/** Euro value of a deal: a whole number, never negative, never NaN. */
+export function cleanDealValue(value: unknown): number {
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return Math.min(Math.round(n), Number.MAX_SAFE_INTEGER);
+}
+
+function normalizePipeline(data: unknown): PipelineData {
+  const source = isRecord(data) ? data : {};
+  const deals: Record<string, Deal> = {};
+  safeEntries(source.deals).forEach(([key, raw], index) => {
+    if (!isSafeId(key) || !isRecord(raw)) return;
+    deals[key] = {
+      id: key,
+      title: cleanText(raw.title, DEAL_TITLE_MAX).trim() || "Senza titolo",
+      client: cleanText(raw.client, DEAL_CLIENT_MAX),
+      value: cleanDealValue(raw.value),
+      notes: cleanText(raw.notes, DEAL_NOTES_MAX),
+      createdAt: cleanTimestamp(raw.createdAt, index + 1),
     };
+  });
+  const known = new Set(Object.keys(deals));
+  const claimed = new Set<string>();
+  const rawStages = isRecord(source.stages) ? source.stages : {};
+  const stages = {
+    lead: claimIds(rawStages.lead, known, claimed),
+    offer: claimIds(rawStages.offer, known, claimed),
+    won: claimIds(rawStages.won, known, claimed),
+  };
+  for (const id of known) {
+    if (!claimed.has(id)) stages.lead.push(id);
   }
-  return localStorage;
+  return { deals, stages };
+}
+
+/** Clean pipelines keyed by space id, or `null` when the input is not an object. */
+export function normalizePipelines(raw: unknown): Record<string, PipelineData> | null {
+  if (!isRecord(raw)) return null;
+  const pipelines: Record<string, PipelineData> = {};
+  for (const [spaceId, pipeline] of safeEntries(raw)) {
+    if (!isSafeId(spaceId)) continue;
+    pipelines[spaceId] = normalizePipeline(pipeline);
+  }
+  return pipelines;
 }
 
 function readPipeline(state: SalesState, spaceId: string): PipelineData {
@@ -170,7 +207,7 @@ export const useSalesStore = create<SalesState>()(
           id,
           title: values.title.trim(),
           client: values.client.trim(),
-          value: Math.max(0, Math.round(values.value)),
+          value: cleanDealValue(values.value),
           notes: values.notes.trim(),
           createdAt: Date.now(),
         };
@@ -207,7 +244,7 @@ export const useSalesStore = create<SalesState>()(
                     ...existing,
                     title: values.title.trim(),
                     client: values.client.trim(),
-                    value: Math.max(0, Math.round(values.value)),
+                    value: cleanDealValue(values.value),
                     notes: values.notes.trim(),
                   },
                 },
@@ -296,6 +333,23 @@ export const useSalesStore = create<SalesState>()(
           };
         });
       },
+      setStages: (spaceId, stages) => {
+        set((state) => {
+          const pipeline = state.pipelines[spaceId];
+          if (!pipeline) return state;
+          // Reconcile, do not replace: another tab may have added or deleted
+          // deals since the layout was taken.
+          const known = new Set(Object.keys(pipeline.deals));
+          const claimed = new Set<string>();
+          const next = {
+            lead: claimIds(stages.lead, known, claimed),
+            offer: claimIds(stages.offer, known, claimed),
+            won: claimIds(stages.won, known, claimed),
+          };
+          for (const id of known) if (!claimed.has(id)) next.lead.push(id);
+          return { pipelines: { ...state.pipelines, [spaceId]: { ...pipeline, stages: next } } };
+        });
+      },
       reorderInStage: (spaceId, stageId, activeId, overId) => {
         set((state) => {
           const pipeline = readPipeline(state, spaceId);
@@ -320,25 +374,24 @@ export const useSalesStore = create<SalesState>()(
     }),
     {
       name: "bacheca-sales-v1",
-      storage: createJSONStorage(getStorage),
+      storage: createJSONStorage(quadroStorage),
       skipHydration: true,
       partialize: (state) => ({ pipelines: state.pipelines }),
       version: 2,
       migrate: (persisted) => {
-        const data = persisted as {
-          pipelines?: Record<string, PipelineData>;
-          deals?: Record<string, Deal>;
-          stages?: Record<StageId, string[]>;
-        };
-        if (data.pipelines) return { pipelines: data.pipelines };
+        const data = isRecord(persisted) ? persisted : {};
+        const pipelines = normalizePipelines(data.pipelines);
+        if (pipelines) return { pipelines };
+        // Before v2 there was a single pipeline stored at the top level.
         return {
           pipelines: {
-            [DEFAULT_SALES_ID]: {
-              deals: data.deals ?? {},
-              stages: data.stages ?? { lead: [], offer: [], won: [] },
-            },
+            [DEFAULT_SALES_ID]: normalizePipeline({ deals: data.deals, stages: data.stages }),
           },
         };
+      },
+      merge: (persisted, current) => {
+        const pipelines = normalizePipelines(isRecord(persisted) ? persisted.pipelines : undefined);
+        return pipelines ? { ...current, pipelines } : current;
       },
     },
   ),

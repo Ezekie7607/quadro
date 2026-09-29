@@ -25,15 +25,23 @@ type NoteDialogProps = {
   onSubmit: (values: { title: string; body: string; attachments: NoteFile[] }) => void;
 };
 
+/**
+ * What the note keeps: the label, never the file (§8). The progress bar is local
+ * to this dialog, so a file still "uploading" when the note is saved is saved
+ * as ready; otherwise it would read "Caricamento" forever once reopened.
+ */
 function toNoteFiles(items: FileUploadItem[]): NoteFile[] {
-  return items.map((item) => ({
-    id: item.id,
-    name: item.name,
-    size: item.size,
-    type: item.type ?? "",
-    progress: item.status === "success" ? 100 : (item.progress ?? 0),
-    status: item.status ?? "queued",
-  }));
+  return items.map((item) => {
+    const status = item.status === "error" ? "error" : "success";
+    return {
+      id: item.id,
+      name: item.name,
+      size: item.size,
+      type: item.type ?? "",
+      progress: status === "success" ? 100 : (item.progress ?? 0),
+      status,
+    };
+  });
 }
 
 export function NoteDialog({ editor, onOpenChange, onSubmit }: NoteDialogProps) {
@@ -61,9 +69,10 @@ export function NoteDialog({ editor, onOpenChange, onSubmit }: NoteDialogProps) 
   }, [editor]);
 
   useEffect(() => {
+    const running = timers.current;
     return () => {
-      for (const timer of timers.current.values()) window.clearInterval(timer);
-      timers.current.clear();
+      for (const timer of running.values()) window.clearInterval(timer);
+      running.clear();
     };
   }, []);
 
@@ -112,7 +121,7 @@ export function NoteDialog({ editor, onOpenChange, onSubmit }: NoteDialogProps) 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
-        <form onSubmit={handleSubmit} className="grid max-h-[min(80dvh,36rem)] gap-4 overflow-y-auto">
+        <form onSubmit={handleSubmit} className="grid gap-4">
           <DialogHeader>
             <DialogTitle>{isEdit ? "Modifica nota" : "Nuova nota"}</DialogTitle>
             <DialogDescription>
@@ -159,7 +168,7 @@ export function NoteDialog({ editor, onOpenChange, onSubmit }: NoteDialogProps) 
             onRemove={(item) => stopUpload(item.id)}
             maxFiles={6}
             title="Trascina i file"
-            description="PDF, immagini o zip — restano sulla nota"
+            description="PDF, immagini o zip — resta il nome, non il file."
             browseLabel="Sfoglia"
           />
 

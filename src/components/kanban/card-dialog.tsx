@@ -156,6 +156,7 @@ export function CardDialog({ editor, onOpenChange, onSubmit }: CardDialogProps) 
                       <button
                         key={preset.label}
                         type="button"
+                        aria-pressed={active}
                         onClick={() => setDueDate(iso)}
                         className={cn(
                           "h-11 rounded-xl font-display text-xs tracking-[0.08em] uppercase",
@@ -188,6 +189,7 @@ export function CardDialog({ editor, onOpenChange, onSubmit }: CardDialogProps) 
                 <button
                   key={id}
                   type="button"
+                  aria-pressed={priority === id}
                   onClick={() => setPriority(id)}
                   className={cn(
                     "h-11 rounded-xl border px-2 text-xs font-medium transition-colors duration-quick sm:text-sm",
@@ -209,6 +211,7 @@ export function CardDialog({ editor, onOpenChange, onSubmit }: CardDialogProps) 
                 <button
                   key={id}
                   type="button"
+                  aria-pressed={columnId === id}
                   onClick={() => setColumnId(id)}
                   className={cn(
                     "h-11 rounded-xl border px-2 text-xs font-medium transition-colors duration-quick sm:text-sm",

@@ -1,11 +1,16 @@
 import { useCallback, useEffect, useState } from "react";
+import { isDialogOpen, isPaletteOpen, isTypingTarget } from "@/lib/shortcuts";
 
 export function useSelection() {
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setSelected(new Set());
+      if (event.key !== "Escape") return;
+      // That Esc is closing a dialog, the palette or leaving a field, not
+      // asking to drop the selection behind it.
+      if (isDialogOpen() || isPaletteOpen() || isTypingTarget(event.target)) return;
+      setSelected(new Set());
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
